@@ -365,6 +365,7 @@ struct SkillsTab: View {
                         Picker("Skill Type", selection: k.stypeId) { Text("None").tag(0); ForEach(doc.typeOptions(doc.project.system.skillTypes), id: \.0) { Text($0.1).tag($0.0) } }
                         HStack { TextField("MP Cost", value: k.mpCost, format: .number); TextField("TP Cost", value: k.tpCost, format: .number) }
                         UsableFields(doc: doc, scope: k.scope, occasion: k.occasion, hitType: k.hitType, speed: k.speed, successRate: k.successRate, repeats: k.repeats, tpGain: k.tpGain)
+                        AnimationPicker(doc: doc, id: k.animationId)
                         TextField("Message", text: k.message1, prompt: Text("%1 casts %2!"))
                         DamageEditor(doc: doc, damage: k.damage)
                         EffectsEditor(doc: doc, effects: k.effects)
@@ -400,6 +401,7 @@ struct EquipTab: View {
                             Picker("Equipment Type", selection: e.etypeId) { ForEach(doc.typeOptions(doc.project.system.equipTypes).filter { $0.0 > 1 }, id: \.0) { Text($0.1).tag($0.0) } }
                         }
                         TextField("Price", value: e.price, format: .number)
+                        if weapons { AnimationPicker(doc: doc, id: e.animationId, allowNormalAttack: false) }
                         Section("Parameter Changes") { ParamsRow(params: e.params) }
                         TraitsEditor(doc: doc, traits: e.traits)
                     }.padding()
@@ -425,8 +427,12 @@ struct EnemiesTab: View {
                             TextField("Name", text: e.name)
                             Picker("Battler Image", selection: e.battlerName) {
                                 Text("(None)").tag("")
-                                ForEach(doc.project.assetNames("img/enemies"), id: \.self) { Text($0).tag($0) }
+                                ForEach(Array(Set(doc.project.assetNames("img/enemies") + doc.project.assetNames("img/sv_enemies"))).sorted(), id: \.self) { Text($0).tag($0) }
                             }
+                            Picker("Collapse Effect", selection: Binding(get: { e.wrappedValue.traits.first { $0.code == Trait.collapseType }?.dataId ?? 0 }, set: { v in
+                                e.wrappedValue.traits.removeAll { $0.code == Trait.collapseType }
+                                if v > 0 { e.wrappedValue.traits.append(Trait(Trait.collapseType, v, 0)) }
+                            })) { Text("Normal").tag(0); Text("Boss").tag(1); Text("Instant").tag(2); Text("No Disappear").tag(3) }
                             Section("Parameters") { ParamsRow(params: e.params) }
                             HStack { TextField("EXP", value: e.exp, format: .number); TextField("Gold", value: e.gold, format: .number) }
                             Section("Drop Items") {
@@ -519,9 +525,14 @@ struct TroopsTab: View {
             } else { Spacer() }
         }
     }
+    /// Front view: a row across the screen. Side view: staggered on the left half, clear of the actors.
     func arrange(_ t: Binding<Troop>) {
         let n = t.wrappedValue.members.count
-        for i in 0..<n { t.wrappedValue.members[i].x = Int(816.0 / Double(n + 1) * Double(i + 1)); t.wrappedValue.members[i].y = 420 }
+        for i in 0..<n {
+            if doc.project.system.optSideView {
+                t.wrappedValue.members[i].x = Int(120 + 380.0 / Double(n + 1) * Double(i + 1)); t.wrappedValue.members[i].y = 300 + (i % 2) * 110
+            } else { t.wrappedValue.members[i].x = Int(816.0 / Double(n + 1) * Double(i + 1)); t.wrappedValue.members[i].y = 420 }
+        }
     }
 }
 
@@ -539,6 +550,16 @@ struct TroopPreview: View {
             Rectangle().fill(Color.black.opacity(0.4))
             if let b = bb1 { Image(decorative: b, scale: 1).resizable().frame(width: 1000 * scale, height: 740 * scale).offset(x: -92 * scale, y: -58 * scale) }
             if let b = bb2 { Image(decorative: b, scale: 1).resizable().frame(width: 1000 * scale, height: 740 * scale).offset(x: -92 * scale, y: -58 * scale) }
+            if doc.project.system.optSideView {
+                // Party in its side-view home positions (Sprite_Actor.setActorHome).
+                ForEach(Array(doc.project.system.partyMembers.prefix(4).enumerated()), id: \.offset) { i, aid in
+                    if let name = doc.project.actor(aid)?.battlerName, let img = loadPNG(doc.project.imageURL("sv_actors", name)),
+                       let f = img.cropping(to: CGRect(x: img.width / 9, y: 0, width: img.width / 9, height: img.height / 6)) {
+                        Image(decorative: f, scale: 1).resizable().frame(width: CGFloat(f.width) * scale, height: CGFloat(f.height) * scale)
+                            .position(x: CGFloat(600 + i * 32) * scale, y: CGFloat(280 + i * 48 - f.height / 2) * scale).opacity(0.85)
+                    }
+                }
+            }
             ForEach(troop.members.indices, id: \.self) { i in
                 let m = troop.members[i]
                 if let img = loadPNG(doc.project.imageURL("enemies", doc.project.enemy(m.enemyId)?.battlerName ?? "")) {
@@ -580,6 +601,10 @@ struct StatesTab: View {
                             ForEach(Array(["None", "Attack an enemy", "Attack anyone", "Attack an ally", "Cannot move"].enumerated()), id: \.offset) { Text($0.element).tag($0.offset) }
                         }
                         Stepper("Priority: \(st.wrappedValue.priority)", value: st.priority, in: 0...100)
+                        Picker("[SV] Motion", selection: st.motion) { Text("Normal").tag(0); Text("Abnormal").tag(1); Text("Sleep").tag(2); Text("Dead").tag(3) }
+                        Picker("[SV] Overlay", selection: st.overlay) {
+                            ForEach(Array(["None", "Poison", "Blind", "Silence", "Rage", "Confusion", "Fascination", "Sleep", "Paralyze", "Curse", "Fear"].enumerated()), id: \.offset) { Text($0.element).tag($0.offset) }
+                        }
                         Section("Removal Conditions") {
                             Toggle("Remove at Battle End", isOn: st.removeAtBattleEnd)
                             Toggle("Remove by Restriction", isOn: st.removeByRestriction)

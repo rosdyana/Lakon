@@ -111,12 +111,36 @@ final class SceneUI {
         return l
     }
 
-    func sprite(_ key: String, _ tex: SKTexture?, center: CGPoint, size: CGSize? = nil, z: CGFloat = 1, alpha: CGFloat = 1, anchor: CGPoint = CGPoint(x: 0.5, y: 0.5)) {
+    func sprite(_ key: String, _ tex: SKTexture?, center: CGPoint, size: CGSize? = nil, z: CGFloat = 1, alpha: CGFloat = 1, anchor: CGPoint = CGPoint(x: 0.5, y: 0.5),
+                rotation: CGFloat = 0, xScale: CGFloat = 1, yScale: CGFloat = 1, blend: SKBlendMode = .alpha) {
         guard let tex else { return }
         let s = node(key) { SKSpriteNode() }
         if s.texture !== tex { s.texture = tex }
         s.size = size ?? tex.size(); s.position = center; s.zPosition = z; s.alpha = alpha; s.anchorPoint = anchor
+        s.zRotation = rotation; s.xScale = xScale; s.yScale = yScale; s.blendMode = blend
     }
+
+    /// A silhouette of `tex` in a solid colour, alpha-blended over the sprite: MZ's Sprite.setBlendColor
+    /// (rgb = mix(rgb, color, a)). `rgba` is 0…255.
+    func flashSprite(_ key: String, _ tex: SKTexture?, center: CGPoint, size: CGSize? = nil, z: CGFloat, anchor: CGPoint, rgba: [Double],
+                     xScale: CGFloat = 1, blend: SKBlendMode = .alpha) {
+        guard let tex, rgba.count >= 4, rgba[3] > 0.5 else { return }
+        let s = node(key) { () -> SKSpriteNode in let n = SKSpriteNode(); n.shader = Self.flashShader; return n }
+        if s.texture !== tex { s.texture = tex }
+        s.size = size ?? tex.size(); s.position = center; s.zPosition = z; s.anchorPoint = anchor; s.xScale = xScale; s.blendMode = blend
+        s.setValue(SKAttributeValue(vectorFloat4: vector_float4(Float(rgba[0] / 255), Float(rgba[1] / 255), Float(rgba[2] / 255), Float(rgba[3] / 255))), forAttribute: "a_flash")
+    }
+
+    static let flashShader: SKShader = {
+        let sh = SKShader(source: """
+        void main() {
+            vec4 c = texture2D(u_texture, v_tex_coord);
+            gl_FragColor = vec4(a_flash.rgb, 1.0) * c.a * a_flash.a;
+        }
+        """)
+        sh.attributes = [SKAttribute(name: "a_flash", type: .vectorFloat4)]
+        return sh
+    }()
 
     func icon(_ key: String, _ index: Int, _ p: CGPoint, size: CGFloat = 28, z: CGFloat = 2, alpha: CGFloat = 1) {
         guard index > 0, let t = iconTexture(index) else { return }

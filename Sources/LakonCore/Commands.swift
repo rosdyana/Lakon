@@ -79,6 +79,12 @@ public enum Cmd {
     public static func weather(_ type: String, power: Int, duration: Int, wait: Bool = false) -> EventCommand {
         EventCommand(code: 236, indent: 0, parameters: [.string(type), .int(power), .int(duration), .bool(wait)])
     }
+    public static func showAnimation(character: Int, _ id: Int, wait: Bool = true) -> EventCommand {
+        EventCommand(code: 212, indent: 0, parameters: [.int(character), .int(id), .bool(wait)])
+    }
+    public static func changeParallax(_ name: String, loopX: Bool = false, loopY: Bool = false, sx: Int = 0, sy: Int = 0) -> EventCommand {
+        EventCommand(code: 284, indent: 0, parameters: [.string(name), .bool(loopX), .bool(loopY), .int(sx), .int(sy)])
+    }
     public static func balloon(character: Int, _ id: Int, wait: Bool = true) -> EventCommand {
         EventCommand(code: 213, indent: 0, parameters: [.int(character), .int(id), .bool(wait)])
     }
@@ -244,7 +250,9 @@ public enum Cmd {
         case 136: return "◆Change Encounter : \(p[p: 0].int == 0 ? "Enable" : "Disable")"
         case 202: return "◆Set Vehicle Location : \(["Boat", "Ship", "Airship"][min(2, max(0, p[p: 0].int))]), \(project?.mapName(p[p: 2].int) ?? "") (\(p[p: 3].int),\(p[p: 4].int))"
         case 206: return "◆Get on/off Vehicle"
-        case 212: return "◆Show Animation : \(p[p: 0].int < 0 ? "Player" : p[p: 0].int == 0 ? "This Event" : "Event \(p[p: 0].int)"), #\(p[p: 1].int)"
+        case 212:
+            let an = project.flatMap { $0.animation(p[p: 1].int)?.name } ?? "#\(p[p: 1].int)"
+            return "◆Show Animation : \(p[p: 0].int < 0 ? "Player" : p[p: 0].int == 0 ? "This Event" : "Event \(p[p: 0].int)"), \(an)" + (p[p: 2].bool ? " (Wait)" : "")
         case 213:
             let names = ["", "Exclamation", "Question", "Music Note", "Heart", "Anger", "Sweat", "Frustration", "Silence", "Light Bulb", "Zzz"]
             return "◆Show Balloon Icon : \(p[p: 0].int < 0 ? "Player" : p[p: 0].int == 0 ? "This Event" : "Event \(p[p: 0].int)"), \(names[safe: p[p: 1].int] ?? "?")"
@@ -269,6 +277,7 @@ public enum Cmd {
         case 251: return "◆Stop SE"
         case 282: return "◆Change Tileset : #\(p[p: 0].int)"
         case 283: return "◆Change Battle Background : \(p[p: 0].string) & \(p[p: 1].string)"
+        case 284: return "◆Change Parallax : \(p[p: 0].string.isEmpty ? "None" : p[p: 0].string)" + (p[p: 1].bool || p[p: 2].bool ? " (loop \(p[p: 3].int), \(p[p: 4].int))" : "")
         case 285: return "◆Get Location Info : \(va(p[p: 0].int))"
         case 301:
             let tn = project.flatMap { p[p: 1].int < $0.troops.count ? $0.troops[p[p: 1].int]?.name : nil } ?? "#\(p[p: 1].int)"
@@ -304,7 +313,9 @@ public enum Cmd {
         case 334: return "◆Enemy Recover All : #\(p[p: 0].int + 1)"
         case 335: return "◆Enemy Appear : #\(p[p: 0].int + 1)"
         case 336: return "◆Enemy Transform : #\(p[p: 0].int + 1) → \(p[p: 1].int)"
-        case 337: return "◆Show Battle Animation : #\(p[p: 0].int + 1)"
+        case 337:
+            let an = project.flatMap { $0.animation(p[p: 1].int)?.name } ?? "#\(p[p: 1].int)"
+            return "◆Show Battle Animation : \(p[p: 2].bool ? "Entire Troop" : "#\(p[p: 0].int + 1)"), \(an)"
         case 339: return "◆Force Action"
         case 340: return "◆Abort Battle"
         case 351: return "◆Open Menu Screen"

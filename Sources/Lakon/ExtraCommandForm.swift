@@ -190,6 +190,18 @@ struct ExtraCommandForm: View {
             Picker("Vehicle", selection: $id2) { Text("Boat").tag(0); Text("Ship").tag(1); Text("Airship").tag(2) }.pickerStyle(.segmented)
             Picker("Map", selection: $id) { ForEach(p.orderedMapInfos) { Text($0.name).tag($0.id) } }
             HStack { TextField("X", value: $x, format: .number); TextField("Y", value: $y, format: .number) }
+        case .showAnimation:
+            characterPicker()
+            AnimationPicker(doc: doc, id: $value, allowNormalAttack: false)
+            Toggle("Wait for Completion", isOn: $wait)
+        case .battleAnimation:
+            Picker("Enemy", selection: $id) { ForEach(0..<8, id: \.self) { Text("#\($0 + 1)").tag($0) } }.disabled(flag)
+            Toggle("Entire Troop", isOn: $flag)
+            AnimationPicker(doc: doc, id: $value, allowNormalAttack: false)
+        case .changeParallax:
+            Picker("Image", selection: $text) { Text("(None)").tag(""); ForEach(p.assetNames("img/parallaxes"), id: \.self) { Text($0).tag($0) } }
+            HStack { Toggle("Loop Horizontally", isOn: $flag); Stepper("Scroll: \(x)", value: $x, in: -32...32).disabled(!flag) }
+            HStack { Toggle("Loop Vertically", isOn: $flag2); Stepper("Scroll: \(y)", value: $y, in: -32...32).disabled(!flag2) }
         case .script:
             TextEditor(text: $text).font(.system(.body, design: .monospaced)).frame(height: 180)
             Text("JavaScript with $gameVariables, $gameSwitches, $gameParty, $gameActors, $gamePlayer, $gameMap, $gameMessage, $gameScreen, AudioManager.")
@@ -252,6 +264,9 @@ struct ExtraCommandForm: View {
         case .weather: return [Cmd.weather(weatherType, power: value, duration: duration, wait: wait)]
         case .vehicleLocation: return [c(202, [.int(id2), 0, .int(id), .int(x), .int(y)])]
         case .getOnOff: return [c(206, [])]
+        case .showAnimation: return [Cmd.showAnimation(character: character, value, wait: wait)]
+        case .battleAnimation: return [c(337, [.int(id), .int(value), .bool(flag)])]
+        case .changeParallax: return [Cmd.changeParallax(text, loopX: flag, loopY: flag2, sx: x, sy: y)]
         case .script: return Cmd.script(text)
         case .plugin:
             var args: [String: String] = [:]
@@ -277,11 +292,15 @@ struct ExtraCommandForm: View {
         if kind == .showPicture { x = 408; y = 312 }
         if kind == .balloon { value = 1; character = 0 }
         if kind == .vehicleLocation { id = doc.mapId }
+        if kind == .showAnimation || kind == .battleAnimation { value = p.animations.compactMap { $0 }.first?.id ?? 1; id = 0; character = -1 }
+        if kind == .changeParallax { text = doc.map.parallaxName; flag = false; flag2 = false; x = 0; y = 0 }
         guard let e = existing, let h = e.first else { return }
         let q = h.parameters
         switch h.code {
         case 103, 104: id = q[p: 0].int; value = q[p: 1].int
-        case 213: character = q[p: 0].int; value = q[p: 1].int; wait = q[p: 2].bool
+        case 213, 212: character = q[p: 0].int; value = q[p: 1].int; wait = q[p: 2].bool
+        case 337: id = q[p: 0].int; value = q[p: 1].int; flag = q[p: 2].bool
+        case 284: text = q[p: 0].string; flag = q[p: 1].bool; flag2 = q[p: 2].bool; x = q[p: 3].int; y = q[p: 4].int
         case 311, 312, 315, 316: actor = q[p: 1].int; op = q[p: 2].int; operandType = q[p: 3].int; value = q[p: 4].int; flag = q[p: 5].bool
         case 313, 318: actor = q[p: 1].int; op = q[p: 2].int; id = q[p: 3].int
         case 314: actor = q[p: 1].int

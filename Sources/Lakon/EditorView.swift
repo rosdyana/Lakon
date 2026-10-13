@@ -165,7 +165,10 @@ struct EditorView: View {
             }.frame(width: 90)
             Button { doc.showDatabase = true } label: { Label("Database", systemImage: "cylinder.split.1x2") }.help("Database (⌘D)")
             Button { doc.playtest() } label: { Label("Playtest", systemImage: "play.fill") }.help("Playtest (⌘R)")
-            Button { doc.export() } label: { Label("Export .app", systemImage: "shippingbox") }.help("Deploy as a standalone Mac app")
+            Menu {
+                Button("Export as Mac App…") { doc.export() }
+                Button("Export for Web (itch.io)…") { doc.exportWeb() }
+            } label: { Label("Export", systemImage: "shippingbox") }.help("Deploy as a Mac app or an HTML5 build for itch.io")
         }
     }
 }
@@ -240,6 +243,15 @@ struct MapPropertiesSheet: View {
                         Toggle("Autoplay BGS", isOn: $draft.autoplayBgs)
                         if draft.autoplayBgs { AudioField(doc: doc, title: "BGS", folder: "bgs", file: $draft.bgs) }
                     }
+                    Section("Parallax Background") {
+                        Picker("Image", selection: $draft.parallaxName) { Text("(None)").tag(""); ForEach(doc.project.assetNames("img/parallaxes"), id: \.self) { Text($0).tag($0) } }
+                        if !draft.parallaxName.isEmpty {
+                            HStack { Toggle("Loop Horizontally", isOn: $draft.parallaxLoopX); Stepper("Scroll X: \(draft.parallaxSx)", value: $draft.parallaxSx, in: -32...32).disabled(!draft.parallaxLoopX) }
+                            HStack { Toggle("Loop Vertically", isOn: $draft.parallaxLoopY); Stepper("Scroll Y: \(draft.parallaxSy)", value: $draft.parallaxSy, in: -32...32).disabled(!draft.parallaxLoopY) }
+                            Toggle("Show in the Editor", isOn: $draft.parallaxShow)
+                            Text("Shows through empty tiles. A name starting with \"!\" scrolls with the map instead of the camera.").font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
                     Section("Battle") {
                         Toggle("Specify Battleback", isOn: $draft.specifyBattleback)
                         if draft.specifyBattleback {
@@ -281,6 +293,8 @@ struct MapPropertiesSheet: View {
             m.autoplayBgm = d.autoplayBgm; m.bgm = d.bgm; m.autoplayBgs = d.autoplayBgs; m.bgs = d.bgs
             m.specifyBattleback = d.specifyBattleback; m.battleback1Name = d.battleback1Name; m.battleback2Name = d.battleback2Name
             m.encounterStep = d.encounterStep; m.encounterList = d.encounterList
+            m.parallaxName = d.parallaxName; m.parallaxLoopX = d.parallaxLoopX; m.parallaxLoopY = d.parallaxLoopY
+            m.parallaxSx = d.parallaxSx; m.parallaxSy = d.parallaxSy; m.parallaxShow = d.parallaxShow
             if m.width != width || m.height != height { m.resize(width: width, height: height) }
         }
         doc.mapId = prev
@@ -327,6 +341,7 @@ struct EditorCommands: Commands {
             Divider()
             Button("Reload Images") { doc?.reloadImages() }.disabled(doc == nil)
             Button("Export as Mac App…") { doc?.export() }.keyboardShortcut("e").disabled(doc == nil)
+            Button("Export for Web (itch.io)…") { doc?.exportWeb() }.keyboardShortcut("e", modifiers: [.command, .shift]).disabled(doc == nil)
             Button("Reveal Project in Finder") {
                 if let d = doc { NSWorkspace.shared.activateFileViewerSelecting([d.project.root]) }
             }.disabled(doc == nil)

@@ -89,11 +89,12 @@ public final class GameWorld {
         reservedCommonEvents = []; fadeDuration = 0; brightness = 255
         state = s
         actors = [:]
-        for (id, a) in s.actors where project.actor(id) != nil { actors[id] = GameActor(project: project, save: a) }
+        for (id, a) in s.actors where project.actor(id) != nil { let ga = GameActor(project: project, save: a); ga.rng = rng; actors[id] = ga }
         setupVehicles(s.vehicles)
         loadPluginsOnce()
         refreshPlayerImage()
         setupMap(s.mapId, s.playerX, s.playerY, s.playerDirection)
+        if s.hasSavedParallax { state.parallax = s.parallax }
         if let b = s.bgm { audio.playBgm(b) } else { audio.stopBgm() }
         if let b = s.bgs { audio.playBgs(b) }
         makeEncounterCount()
@@ -110,7 +111,7 @@ public final class GameWorld {
     public func actor(_ id: Int) -> GameActor? {
         if let a = actors[id] { return a }
         guard project.actor(id) != nil else { return nil }
-        let a = GameActor(project: project, actorId: id)
+        let a = GameActor(project: project, actorId: id, rng: rng)
         actors[id] = a
         return a
     }
@@ -155,6 +156,7 @@ public final class GameWorld {
         if d != 0 { player.direction = d }
         for f in followers { f.locate(player.x, player.y); f.direction = player.direction }
         events = map.liveEvents.map { GameEvent(data: $0, world: self) }
+        state.parallax = ParallaxState(map: map)
         commonParallels = [:]
         if let v = vehicle { v.mapId = id; v.locate(player.x, player.y); v.direction = player.direction }
         mapGeneration += 1
@@ -189,6 +191,7 @@ public final class GameWorld {
             return
         }
         if shop != nil || nameInput != nil { return }
+        state.parallax.update()
         if let t = transferPending, fadeDuration == 0 {
             if brightness > 0 && t.fade == 0 { startFade(to: 0, duration: 12) }
             else {

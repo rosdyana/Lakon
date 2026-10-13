@@ -27,9 +27,15 @@ public class GameCharacter {
     /// Balloon icon (Show Balloon Icon, 213): 1 !, 2 ?, 3 ♪, 4 ♥, 5 anger, 6 sweat, 7 frustration, 8 silence, 9 light bulb, 10 zzz.
     public var balloonId = 0
     public var balloonFrames = 0
-    /// Animation request (Show Animation, 212); the renderer plays a generic burst.
+    /// Animation request (Show Animation, 212). `animationFrames` counts down the animation's length so
+    /// "Wait for Completion" works headless; `animationSerial` tells the renderer a new request started.
     public var animationId = 0
     public var animationFrames = 0
+    public private(set) var animationSerial = 0
+    public func startAnimation(_ id: Int, frames: Int) {
+        guard frames > 0 else { return }
+        animationId = id; animationFrames = frames; animationSerial += 1
+    }
 
     // Move route (Set Movement Route / custom move type)
     public var moveRoute: [EventCommand] = []

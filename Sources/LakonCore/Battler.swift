@@ -20,7 +20,10 @@ public class GameBattler {
     var actions: [GameAction] = []
     var speed = 0
     public internal(set) var hidden = false
-    var actionState = ""   // "", "inputting", "waiting", "acting"
+    /// Game_Battler._actionState: "undecided", "inputting", "waiting", "acting", "done". Drives side-view motions.
+    public internal(set) var actionState = ""
+    /// The world's random source (seeded in tests, so battles replay exactly).
+    var rng: RandomSource = SystemRandom()
 
     init(project: Project) { self.project = project }
 
@@ -139,7 +142,7 @@ public class GameBattler {
             refreshAfterStateChange()
         }
         if let s = project.state(id) {
-            stateTurns[id] = s.minTurns + Int.random(in: 0...max(0, s.maxTurns - s.minTurns))
+            stateTurns[id] = s.minTurns + rng.next(max(0, s.maxTurns - s.minTurns) + 1)
         }
         result.addedStates.append(id)
     }
@@ -166,7 +169,7 @@ public class GameBattler {
         for s in sortedStates where (stateTurns[s.id] ?? 0) <= 0 && s.autoRemovalTiming == timing { removeState(s.id) }
     }
     func removeStatesByDamage() {
-        for s in sortedStates where s.removeByDamage && Int.random(in: 0..<100) < s.chanceByDamage { removeState(s.id) }
+        for s in sortedStates where s.removeByDamage && rng.next(100) < s.chanceByDamage { removeState(s.id) }
     }
     func removeBattleStates() {
         for s in sortedStates where s.removeAtBattleEnd { removeState(s.id) }
@@ -213,7 +216,8 @@ public class GameBattler {
 
     // MARK: battle hooks
     func onBattleStart(preemptive: Bool) {
-        if !preservesTp { tp = Int.random(in: 0..<25) }
+        if !preservesTp { tp = rng.next(25) }
+        actionState = "undecided"
         if preemptive { /* MZ: nothing extra */ }
     }
     func onBattleEnd() {
@@ -239,8 +243,18 @@ public class GameBattler {
         gainSilentTp(Int((50 * rate * tcr).rounded(.down)))
     }
     var numActions: Int {
-        actionPlusSet.reduce(1) { r, p in Double.random(in: 0..<1) < p ? r + 1 : r }
+        actionPlusSet.reduce(1) { r, p in Double(rng.next(1_000_000)) / 1_000_000 < p ? r + 1 : r }
     }
+
+    // MARK: side-view sprite state (Game_BattlerBase.stateMotionIndex/stateOverlayIndex, Game_Battler.isChanting…)
+    public var stateMotionIndex: Int { sortedStates.first?.motion ?? 0 }
+    public var stateOverlayIndex: Int { sortedStates.first?.overlay ?? 0 }
+    public var isDying: Bool { isAlive && Double(hp) < Double(mhp) / 4 }
+    public var isInputting: Bool { actionState == "inputting" }
+    public var isActing: Bool { actionState == "acting" }
+    public var isUndecided: Bool { actionState == "undecided" }
+    public var isChanting: Bool { actionState == "waiting" && actions.contains { $0.isMagicSkill } }
+    public var isGuardWaiting: Bool { actionState == "waiting" && actions.contains { $0.isGuard } }
 }
 
 public struct ActionResult {
@@ -293,7 +307,7 @@ public final class GameActor: GameBattler {
     /// Item ids per equip slot. Slot 0 is the weapon (Weapons.json), other slots are armors.
     public internal(set) var equips: [Int]
 
-    init(project: Project, actorId: Int) {
+    init(project: Project, actorId: Int, rng: RandomSource = SystemRandom()) {
         self.actorId = actorId
         let a = project.actor(actorId)
         actorName = a?.name ?? "Actor \(actorId)"
@@ -302,6 +316,7 @@ public final class GameActor: GameBattler {
         level = max(1, a?.initialLevel ?? 1)
         equips = Array((a?.equips ?? []) + Array(repeating: 0, count: 5)).prefix(5).map { $0 }
         super.init(project: project)
+        self.rng = rng
         exp[classId] = expForLevel(level)
         for l in project.classData(classId)?.learnings ?? [] where l.level <= level { learnSkill(l.skillId) }
         // Drop initial equipment the actor can't wear.
@@ -325,6 +340,15 @@ public final class GameActor: GameBattler {
     public override var isActor: Bool { true }
     public var data: Actor? { project.actor(actorId) }
     public var currentClass: ClassData? { project.classData(classId) }
+    /// Side-view battler sheet (img/sv_actors).
+    public var battlerName: String { data?.battlerName ?? "" }
+    /// Game_Actor.attackAnimationId1: the weapon's animation, or 1 for bare hands.
+    public var attackAnimationId: Int { equips.first.flatMap { $0 > 0 ? project.weapon($0) : nil }?.animationId ?? 1 }
+    /// System.attackMotions entry for the equipped weapon type (0 = bare hands).
+    public var attackMotion: AttackMotion? {
+        let wtype = equips.first.flatMap { $0 > 0 ? project.weapon($0)?.wtypeId : nil } ?? 0
+        return project.system.attackMotions[safe: wtype]
+    }
     public var maxLevel: Int { data?.maxLevel ?? 99 }
 
     override func paramBase(_ id: Int) -> Int {
@@ -425,6 +449,9 @@ public final class GameEnemy: GameBattler {
     public var data: Enemy? { project.enemy(enemyId) }
     public override var name: String { (data?.name ?? "Enemy") + letter }
     public var battlerName: String { data?.battlerName ?? "" }
+    public var battlerHue: Int { data?.battlerHue ?? 0 }
+    /// Trait 63 Collapse Effect: 0 normal, 1 boss, 2 instant, 3 no disappear.
+    public var collapseType: Int { traits(Trait.collapseType).map(\.dataId).max() ?? 0 }
     override func paramBase(_ id: Int) -> Int { data.map { id < $0.params.count ? $0.params[id] : 1 } ?? 1 }
     override func ownTraits() -> [Trait] { data?.traits ?? [] }
     public var exp: Int { data?.exp ?? 0 }
@@ -433,7 +460,7 @@ public final class GameEnemy: GameBattler {
     public func appear() { hidden = false }
     public func transform(_ id: Int) -> GameEnemy {
         let e = GameEnemy(project: project, enemyId: id, index: index, x: screenX, y: screenY, hidden: false)
-        e.letter = letter; e.hp = min(hp, e.mhp); e.mp = min(mp, e.mmp)
+        e.rng = rng; e.letter = letter; e.hp = min(hp, e.mhp); e.mp = min(mp, e.mmp)
         return e
     }
 

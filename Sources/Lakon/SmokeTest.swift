@@ -34,15 +34,15 @@ enum SmokeTest {
         if env["LAKON_SMOKE_EDITOR_ONLY"] != nil {
             at(3.6) { capture(outDir.appendingPathComponent("e01-editor-window.png"), sheet: false) }
             at(4.0) { model.doc?.showDatabase = true }
-            for (i, tab) in ["Enemies", "Troops", "Skills", "Classes", "Audio & Vehicles"].enumerated() {
-                at(4.8 + Double(i) * 1.2) { NotificationCenter.default.post(name: .lakonSelectDatabaseTab, object: tab) }
-                at(5.5 + Double(i) * 1.2) { capture(outDir.appendingPathComponent("e1\(i)-db-\(tab.prefix(5)).png"), sheet: true) }
+            for (i, tab) in ["Troops", "Animations", "Skills", "Actors", "System"].enumerated() {
+                at(5.0 + Double(i) * 2.5) { NotificationCenter.default.post(name: .lakonSelectDatabaseTab, object: tab) }
+                at(6.8 + Double(i) * 2.5) { capture(outDir.appendingPathComponent("e1\(i)-db-\(tab.prefix(5)).png"), sheet: true) }
             }
-            at(11.0) { model.doc?.showDatabase = false }
-            at(11.6) { model.doc?.mapPropertiesFor = 3 }
-            at(12.6) { capture(outDir.appendingPathComponent("e20-map-properties.png"), sheet: true) }
-            at(13.0) { model.doc?.mapPropertiesFor = nil }
-            at(13.5) { NSApp.terminate(nil) }
+            at(18.0) { model.doc?.showDatabase = false }
+            at(18.6) { model.doc?.mapPropertiesFor = 4 }
+            at(20.0) { capture(outDir.appendingPathComponent("e20-map-properties.png"), sheet: true) }
+            at(20.5) { model.doc?.mapPropertiesFor = nil }
+            at(21.0) { NSApp.terminate(nil) }
             for (t, f) in steps { DispatchQueue.main.asyncAfter(deadline: .now() + t, execute: f) }
             return
         }
@@ -97,8 +97,8 @@ enum SmokeTest {
                 // Finish the fight quickly for the victory screen.
                 for e in sc.world.battle?.enemies ?? [] { e.setHp(0) }
             })
-            idle(260)
-            snap("17-battle-victory.png"); idle(200); for _ in 0..<4 { okUI(); idle(60) }; log("after battle")
+            idle(110)
+            snap("17-battle-victory.png"); idle(350); for _ in 0..<4 { okUI(); idle(60) }; log("after battle")
             // World map: rain, ship, airship
             q.append(.action {
                 var st = sc.world.makeSave(); st.mapId = 3; st.playerX = 20; st.playerY = 14; st.playerDirection = 6
@@ -108,6 +108,17 @@ enum SmokeTest {
             hold(6, 1); idle(20); tap(InputState(ok: true)); idle(40); hold(6, 1); idle(14); hold(6, 1); idle(14); snap("19-ship.png"); log("ship")
             q.append(.action { sc.world.screen.startTint([-68, -68, 0, 68], duration: 0) })
             idle(10); snap("20-tint.png")
+            // Sky Ledge: scrolling parallax, Show Animation, Change Parallax.
+            q.append(.action {
+                sc.world.screen.startTint([0, 0, 0, 0], duration: 0); sc.world.screen.changeWeather("none", power: 0, duration: 0)
+                var st = sc.world.makeSave(); st.mapId = 4; st.playerX = 6; st.playerY = 6; st.playerDirection = 8; st.vehicleType = -1
+                sc.world.load(st)
+            })
+            idle(90); snap("21-sky-parallax.png")
+            tap(InputState(ok: true)); idle(24); snap("22-map-animation.png"); idle(60)
+            idle(90); tap(InputState(ok: true)); idle(80)
+            q.append(.action { sc.world.player.locate(10, 6); sc.world.player.direction = 8 })
+            idle(4); tap(InputState(ok: true)); idle(150); snap("23-starlit-parallax.png"); log("sky")
             q.append(.action { NSApp.terminate(nil) })
             sc.script = q
         }
@@ -149,6 +160,8 @@ enum SmokeTest {
         p.arguments = ["-x", "-o", "-l\(win.windowNumber)", url.path]
         try? p.run(); p.waitUntilExit()
         print("captured \(url.lastPathComponent) status=\(p.terminationStatus)")
+        // Without Screen Recording permission, fall back to the window's own rendering (no native chrome).
+        if p.terminationStatus != 0, let v = win.contentView?.superview ?? win.contentView { snap(v, url) }
     }
 
     static func snapGame(_ url: URL) {

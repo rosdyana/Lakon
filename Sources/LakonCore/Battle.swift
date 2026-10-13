@@ -2,11 +2,22 @@ import Foundation
 
 /// Visual cue emitted by the battle for the renderer.
 public struct BattleCue {
-    public enum Kind { case damage(Int), recover(Int), mpDamage(Int), miss, critical, collapse, flash, shake, actorAct, animation(Int) }
+    public enum Kind {
+        case damage(Int), recover(Int), mpDamage(Int), miss, critical, collapse, flash, shake, actorAct
+        /// Play data/Animations.json entry `id` on the targets after `delay` frames (Spriteset_Base.createAnimation).
+        case animation(Int, mirror: Bool, delay: Int)
+        /// Side-view actor motion (Sprite_Actor.MOTIONS key) and weapon swing image (Weapons1-3 index).
+        case motion(String)
+        case weapon(Int)
+        /// Enemy sprite effect: "whiten", "blink", "appear", "disappear".
+        case effect(String)
+    }
     public let id: Int
     public let kind: Kind
     /// Enemy index (>= 0) or actor index encoded as -(index + 1). nil = whole screen.
     public let target: Int?
+    /// All targets, for animations shown once at the centre of several battlers.
+    public let targets: [Int]
 }
 
 /// Turn-based battle, MZ default ("Turn Based") flow: party command → actor commands → actions ordered by speed →
@@ -34,6 +45,12 @@ public final class BattleManager {
     public private(set) var rewards: (exp: Int, gold: Int, items: [(Int, Int)]) = (0, 0, [])
     public var battleback1: String = ""
     public var battleback2: String = ""
+    /// Escaped successfully: side-view actors run off to the right (Sprite_Actor.retreat).
+    public private(set) var escaped = false
+    /// Frames since the battle started; animations keep the battle busy until `animationBusyUntil`.
+    public private(set) var frame = 0
+    var animationBusyUntil = 0
+    public var sideView: Bool { world.project.system.optSideView }
 
     var queue: [Step] = []
     var waitCount = 0
@@ -46,7 +63,7 @@ public final class BattleManager {
     var turnEndingCheck = false
     var onEnd: ((Outcome) -> Void)?
 
-    enum Step { case log(String), clearLog, wait(Int), cue(BattleCue.Kind, Int?), se(AudioFile?), run(() -> Void) }
+    enum Step { case log(String), clearLog, wait(Int), cue(BattleCue.Kind, Int?), cueAll(BattleCue.Kind, [Int]), se(AudioFile?), run(() -> Void), waitForAnimation }
 
     init(world: GameWorld, troopId: Int, canEscape: Bool, canLose: Bool) {
         self.world = world; self.troopId = troopId; self.canEscape = canEscape; self.canLose = canLose
@@ -54,6 +71,7 @@ public final class BattleManager {
         enemies = (troop?.members ?? []).enumerated().compactMap { i, m in
             world.project.enemy(m.enemyId) == nil ? nil : GameEnemy(project: world.project, enemyId: m.enemyId, index: i, x: m.x, y: m.y, hidden: m.hidden)
         }
+        for e in enemies { e.rng = world.rng }
         // Duplicate names get letters A, B, C… (Game_Troop.makeUniqueNames)
         let names = enemies.map { $0.data?.name ?? "" }
         for name in Set(names) where names.filter({ $0 == name }).count > 1 {
@@ -68,7 +86,7 @@ public final class BattleManager {
 
     public var members: [GameActor] { world.partyMembers }
     public var terms: Terms { world.project.system.terms }
-    public var isBusy: Bool { !queue.isEmpty || waitCount > 0 || interpreter.isRunning || world.message != nil }
+    public var isBusy: Bool { !queue.isEmpty || waitCount > 0 || interpreter.isRunning || world.message != nil || frame < animationBusyUntil }
     public var inputActor: GameActor? { inputIndex.flatMap { $0 < members.count ? members[$0] : nil } }
     public var isFinished: Bool { phase == .done }
 
@@ -89,6 +107,7 @@ public final class BattleManager {
     // MARK: frame update
 
     func update() {
+        frame += 1
         if waitCount > 0 { waitCount -= 1; return }
         if world.message != nil { return }
         if interpreter.isRunning {
@@ -101,7 +120,10 @@ public final class BattleManager {
             case .log(let t): log.append(t); if log.count > 6 { log.removeFirst() }; waitCount = 16; return
             case .clearLog: log = []
             case .wait(let n): waitCount = n; return
-            case .cue(let k, let t): cueCounter += 1; cues.append(BattleCue(id: cueCounter, kind: k, target: t)); if cues.count > 40 { cues.removeFirst(10) }
+            case .cue(let k, let t): addCue(k, t.map { [$0] } ?? [])
+            case .cueAll(let k, let ts): addCue(k, ts)
+            case .waitForAnimation:
+                if frame < animationBusyUntil { waitCount = animationBusyUntil - frame - 1; return }
             case .se(let f): if let f { world.audio.playSe(f) }
             case .run(let f): f()
             }
@@ -128,6 +150,15 @@ public final class BattleManager {
 
     func push(_ steps: Step...) { queue.append(contentsOf: steps) }
 
+    func addCue(_ k: BattleCue.Kind, _ targets: [Int]) {
+        cueCounter += 1
+        cues.append(BattleCue(id: cueCounter, kind: k, target: targets.first, targets: targets))
+        if cues.count > 60 { cues.removeFirst(20) }
+        if case .animation(let id, _, let delay) = k, let a = world.project.animation(id) {
+            animationBusyUntil = max(animationBusyUntil, frame + delay + a.playFrames)
+        }
+    }
+
     // MARK: input
 
     func startInput() {
@@ -136,7 +167,7 @@ public final class BattleManager {
             e.turnCount = turnCount + 1
             e.makeActions(rng: world.rng, partyLevel: members.map(\.level).max() ?? 1, switches: { [unowned self] in world.state.switchValue($0) })
         }
-        for a in members { a.actions = [] }
+        for a in members { a.actions = []; a.actionState = a.canInput ? "undecided" : "waiting" }
         if preemptive { preemptive = false }
         waitingForPartyCommand = members.contains(where: \.canInput)
         inputIndex = nil
@@ -155,7 +186,9 @@ public final class BattleManager {
         world.audio.playSe(sound(8))
         push(.log(terms.message("escapeStart", partyName)))
         let success = preemptive || Double(world.rng.next(1000)) / 1000 < escapeRatio
+        for (i, a) in members.enumerated() where a.canMove { push(.cue(.motion("escape"), -(i + 1))) }
         if success {
+            escaped = true
             push(.wait(30), .run { [unowned self] in endBattle(.escape) })
         } else {
             escapeRatio += 0.1
@@ -168,7 +201,7 @@ public final class BattleManager {
     func selectNextActor(from i: Int) {
         var n = i + 1
         while n < members.count, !members[n].canInput { n += 1 }
-        if n < members.count { inputIndex = n } else { inputIndex = nil; startTurn() }
+        if n < members.count { inputIndex = n; members[n].actionState = "inputting" } else { inputIndex = nil; startTurn() }
     }
 
     /// Back: previous actor, or the party command.
@@ -176,7 +209,8 @@ public final class BattleManager {
         guard phase == .input, let i = inputIndex else { return }
         var n = i - 1
         while n >= 0, !members[n].canInput { n -= 1 }
-        if n >= 0 { members[n].actions = []; inputIndex = n } else { inputIndex = nil; waitingForPartyCommand = true }
+        members[i].actionState = "undecided"
+        if n >= 0 { members[n].actions = []; members[n].actionState = "inputting"; inputIndex = n } else { inputIndex = nil; waitingForPartyCommand = true }
     }
 
     public func commandAttack(target: Int) { submit(GameAction(subject: currentInputActor, skillId: currentInputActor.attackSkill), target) }
@@ -192,6 +226,7 @@ public final class BattleManager {
         members[i].actions = [a]
         // Extra actions from Action Times+ repeat the chosen action (simplification of MZ's per-action input).
         for _ in 1..<max(1, members[i].numActions) { let x = GameAction(subject: a.subject, skillId: a.skillId); x.itemId = a.itemId; x.targetIndex = target; members[i].actions.append(x) }
+        members[i].actionState = "waiting"
         selectNextActor(from: i)
     }
 
@@ -212,6 +247,7 @@ public final class BattleManager {
         for a in members where a.canMove && a.actions.isEmpty {
             let act = GameAction(subject: a, skillId: a.attackSkill); act.targetIndex = -1; a.actions = [act]
         }
+        for a in members where a.actionState != "waiting" && a.canMove { a.actionState = "waiting" }
         actionBattlers = (members as [GameBattler] + enemies).filter { $0.isAlive && !$0.actions.isEmpty }
         for b in actionBattlers { b.speed = b.actions.map { $0.speed(world.rng) }.min() ?? 0 }
         actionBattlers.sort { $0.speed > $1.speed }
@@ -232,19 +268,42 @@ public final class BattleManager {
         if last { subject = nil }
     }
 
+    /// BattleManager.startAction + Window_BattleLog.startAction: step forward, motion, animation, message, then wait
+    /// for the animation before the results (BattleManager.isBusy includes Spriteset_Battle.isAnimationPlaying).
     func perform(_ action: GameAction) {
         let s = action.subject
         guard let item = action.item, s.canUse(item, inBattle: true) || action.forcing else { return }
         if let sk = item as? Skill { s.paySkillCost(sk) }
         if let it = item as? Item, it.consumable { world.state.gain(kind: 1, id: it.id, -1) }
-        push(.log(actionMessage(s, item)))
-        if s.isActor, let idx = memberIndex(s) { push(.cue(.actorAct, idx)) }
-        else if let e = s as? GameEnemy { push(.cue(.flash, e.index)) }
-        if let sk = item as? Skill, !sk.message2.isEmpty { push(.log(sk.message2.replacingOccurrences(of: "%1", with: s.name).replacingOccurrences(of: "%2", with: sk.name))) }
-        push(.se(item.isSkill && (item as! Skill).id == s.attackSkill ? (s.isActor ? nil : sound(9)) : sound(item.isSkill ? 23 : 22)))
         let friends: [GameBattler] = s.isActor ? members : enemies
         let opponents: [GameBattler] = s.isActor ? enemies : members
         let targets = action.makeTargets(friends: friends, opponents: opponents, rng: world.rng)
+        // performActionStart
+        if !action.isGuard { s.actionState = "acting" }
+        if let e = s as? GameEnemy { push(.cue(.effect("whiten"), e.index)) }
+        if sideView && s.isActor && !action.isGuard { push(.wait(12)) }          // waitForMovement (stepForward is 12 frames)
+        // performAction
+        if let a = s as? GameActor, let idx = memberIndex(a) {
+            let t = -(idx + 1)
+            push(.cue(.actorAct, idx))
+            if action.isAttack {
+                if let m = a.attackMotion {
+                    push(.cue(.motion(["thrust", "swing", "missile"][safe: m.type] ?? "thrust"), t))
+                    if m.weaponImageId > 0 { push(.cue(.weapon(m.weaponImageId), t)) }
+                }
+            } else if action.isGuard { push(.cue(.motion("guard"), t)) }
+            else if action.isMagicSkill { push(.cue(.motion("spell"), t)) }
+            else if action.isSkill { push(.cue(.motion("skill"), t)) }
+            else { push(.cue(.motion("item"), t)) }
+        }
+        // showAnimation
+        let animated = showAnimation(s, targets, item.animationId)
+        if item.animationId < 0 && !s.isActor { push(.se(sound(9))) }            // showEnemyAttackAnimation
+        else if !animated && !action.isAttack { push(.se(sound(item.isSkill ? 23 : 22))) }
+        // displayAction
+        push(.log(actionMessage(s, item)))
+        if let sk = item as? Skill, !sk.message2.isEmpty { push(.log(sk.message2.replacingOccurrences(of: "%1", with: s.name).replacingOccurrences(of: "%2", with: sk.name))) }
+        push(.waitForAnimation)
         for t in targets {
             push(.run { [unowned self] in
                 action.apply(to: t, rng: self.world.rng, formula: { [unowned self] f, a, b in self.world.script.evalFormula(f, a: a, b: b) },
@@ -255,7 +314,29 @@ public final class BattleManager {
         push(.run { [unowned self] in
             s.removeStatesAuto(1)
             for e in enemies where e.isDead && !collapsed.contains(e.index) { collapsed.insert(e.index) }
-        }, .wait(12), .clearLog)
+        }, .wait(12), .clearLog, .run { if s.actions.isEmpty { s.actionState = "done" } })
+    }
+
+    /// Window_BattleLog.showAnimation: -1 = normal attack (actor: weapon animation; enemy: just the attack SE).
+    @discardableResult
+    func showAnimation(_ s: GameBattler, _ targets: [GameBattler], _ id: Int) -> Bool {
+        if id < 0 { return (s as? GameActor).map { showNormalAnimation(targets, $0.attackAnimationId, mirror: false) } ?? false }
+        return showNormalAnimation(targets, id, mirror: false)
+    }
+
+    /// Spriteset_Base.createAnimation: per-target sprites start 8 frames in, each next target 12 frames later;
+    /// animations on actors are mirrored (animationShouldMirror).
+    @discardableResult
+    func showNormalAnimation(_ targets: [GameBattler], _ id: Int, mirror: Bool) -> Bool {
+        guard let anim = world.project.animation(id), !targets.isEmpty else { return false }
+        let ids = targets.compactMap(cueTarget)
+        let m = targets.first?.isActor == true ? !mirror : mirror
+        if anim.isForEach {
+            for (i, t) in ids.enumerated() { push(.cue(.animation(id, mirror: m, delay: AnimationData.baseDelay + i * AnimationData.nextDelay), t)) }
+        } else {
+            push(.cueAll(.animation(id, mirror: m, delay: AnimationData.baseDelay), ids))
+        }
+        return true
     }
     var collapsed = Set<Int>()
 
@@ -282,6 +363,7 @@ public final class BattleManager {
         guard r.used else { return out }
         if r.missed || r.evaded {
             out.append(.cue(.miss, ct))
+            if r.evaded && actor { out.append(.cue(.motion("evade"), ct)) }
             out.append(.se(sound(r.evaded ? 18 : 17)))
             out.append(.log(r.evaded ? terms.message("evasion", t.name) : terms.message(actor ? "actorNoHit" : "enemyNoHit", t.name)))
             return out
@@ -292,7 +374,8 @@ public final class BattleManager {
             if r.hpDamage > 0 && !r.drain {
                 out.append(.se(sound(actor ? 14 : 10)))
                 out.append(.cue(.damage(r.hpDamage), ct))
-                if actor { out.append(.cue(.shake, nil)) }
+                if actor { out.append(sideView ? .cue(.motion("damage"), ct) : .cue(.shake, nil)) }
+                else { out.append(.cue(.effect("blink"), ct)) }
                 out.append(.log(terms.message(actor ? "actorDamage" : "enemyDamage", t.name, String(r.hpDamage))))
             } else if r.hpDamage > 0 && r.drain {
                 out.append(.cue(.damage(r.hpDamage), ct))
@@ -384,6 +467,10 @@ public final class BattleManager {
         phase = .ending
         outcome = .win
         for b in members { b.removeBattleStatesNow() }
+        for (i, a) in members.enumerated() {
+            a.actionState = "done"
+            if a.canMove { push(.cue(.motion("victory"), -(i + 1))) }
+        }
         world.audio.playMe(world.state.victoryMe ?? world.project.system.victoryMe)
         let dead = enemies.filter(\.isDead)
         let exp = dead.reduce(0) { $0 + $1.exp }
@@ -426,10 +513,11 @@ public final class BattleManager {
     }
 
     func replaceEnemy(_ old: GameEnemy, with new: GameEnemy) {
-        if let i = enemies.firstIndex(where: { $0 === old }) { enemies[i] = new; push(.cue(.flash, new.index)) }
+        if let i = enemies.firstIndex(where: { $0 === old }) { enemies[i] = new; push(.cue(.effect("whiten"), new.index)) }
     }
+    /// Show Battle Animation (337): enemyIndex < 0 = the whole troop.
     func cueAnimation(enemyIndex: Int, animationId: Int) {
-        for e in enemyIndex < 0 ? enemies : enemies.filter({ $0.index == enemyIndex }) { push(.cue(.animation(animationId), e.index)) }
+        showNormalAnimation(enemies.filter { $0.isAlive && (enemyIndex < 0 || $0.index == enemyIndex) }, animationId, mirror: false)
     }
     /// Force Action (339): the battler acts immediately with the given skill.
     func forceAction(isEnemy: Bool, id: Int, skillId: Int, target: Int) {

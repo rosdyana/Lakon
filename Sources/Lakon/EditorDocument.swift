@@ -207,6 +207,20 @@ final class EditorDocument: ObservableObject {
         } catch { status = "Playtest failed: \(error.localizedDescription)" }
     }
 
+    func exportWeb() {
+        save()
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true; panel.canChooseFiles = false; panel.canCreateDirectories = true
+        panel.prompt = "Export Here"
+        panel.message = "Choose a folder for the HTML5 build of \(title) (a folder and a .zip for itch.io)"
+        guard panel.runModal() == .OK, let dir = panel.url else { return }
+        do {
+            let r = try WebExporter.export(project: project, to: dir)
+            status = "Exported \(r.zip.lastPathComponent)" + (r.warnings.isEmpty ? "" : " — " + r.warnings.joined(separator: " "))
+            NSWorkspace.shared.activateFileViewerSelecting([r.zip])
+        } catch { status = "Web export failed: \(error.localizedDescription)" }
+    }
+
     func export() {
         save()
         let panel = NSOpenPanel()

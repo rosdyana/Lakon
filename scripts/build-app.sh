@@ -8,6 +8,9 @@ APP=build/Lakon.app
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN" "$APP/Contents/MacOS/Lakon"
+# Web runtime for Game ▸ Export for Web (read from Contents/Resources/web).
+cp -R web "$APP/Contents/Resources/web"
+rm -rf "$APP/Contents/Resources/web/test" "$APP/Contents/Resources/web/sim.js"
 if [ -f Resources/AppIcon.icns ]; then cp Resources/AppIcon.icns "$APP/Contents/Resources/"; fi
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>

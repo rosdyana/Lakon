@@ -1,0 +1,5 @@
+{"seed": 7, "steps": [
+ {"frames": 400}, {"frames": 60, "dir": 8}, {"frames": 60, "dir": 4}, {"frames": 60, "dir": 2}, {"frames": 60, "dir": 6},
+ {"frames": 2, "ok": true}, {"frames": 300}, {"frames": 120, "dir": 2}, {"frames": 200, "dir": 2, "dash": true}, {"frames": 300},
+ {"frames": 150, "dir": 6}, {"frames": 150, "dir": 8}, {"frames": 150, "dir": 4}, {"frames": 2, "ok": true}, {"frames": 600}
+]}

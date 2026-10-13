@@ -18,6 +18,8 @@ public final class GameAction {
     public var isItem: Bool { itemId > 0 }
     public var isAttack: Bool { skillId == subject.attackSkill }
     public var isGuard: Bool { skillId == GameBattler.guardSkillId }
+    /// Game_Action.isMagicSkill: a skill whose type is in System.magicSkills.
+    public var isMagicSkill: Bool { isSkill && project.system.magicSkills.contains(project.skill(skillId)?.stypeId ?? -1) }
 
     public func speed(_ rng: RandomSource) -> Int {
         let agi = subject.agi

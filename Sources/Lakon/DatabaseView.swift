@@ -8,7 +8,7 @@ struct DatabaseView: View {
     @Environment(\.dismiss) var dismiss
     @State private var tab = "Actors"
     static let tabs = ["Actors", "Classes", "Skills", "Items", "Weapons", "Armors", "Enemies", "Troops", "States",
-                       "Tilesets", "Common Events", "System", "Audio & Vehicles"]
+                       "Animations", "Tilesets", "Common Events", "System", "Audio & Vehicles"]
 
     var body: some View {
         VStack(spacing: 0) {
@@ -27,6 +27,7 @@ struct DatabaseView: View {
                     case "Enemies": EnemiesTab(doc: doc)
                     case "Troops": TroopsTab(doc: doc)
                     case "States": StatesTab(doc: doc)
+                    case "Animations": AnimationsTab(doc: doc)
                     case "Tilesets": TilesetsTab(doc: doc)
                     case "Common Events": CommonEventsTab(doc: doc)
                     case "Audio & Vehicles": AudioVehiclesTab(doc: doc)
@@ -102,6 +103,14 @@ struct ActorsTab: View {
                             EventImagePreview(doc: doc, image: EventImage(characterName: a.wrappedValue.characterName, characterIndex: a.wrappedValue.characterIndex)).frame(width: 64, height: 64)
                         }.buttonStyle(.plain)
                     }
+                    Picker("[SV] Battler", selection: a.battlerName) {
+                        Text("(None)").tag("")
+                        ForEach(doc.project.assetNames("img/sv_actors"), id: \.self) { Text($0).tag($0) }
+                    }
+                    if let img = doc.characterSheetCache("sv_actors/" + a.wrappedValue.battlerName, { loadPNG(doc.project.imageURL("sv_actors", a.wrappedValue.battlerName)) }),
+                       let f = img.cropping(to: CGRect(x: img.width / 9, y: 0, width: img.width / 9, height: img.height / 6)) {
+                        LabeledContent("Side-view preview") { Image(decorative: f, scale: 1).interpolation(.none).resizable().frame(width: 96, height: 96) }
+                    }
                     Toggle("In starting party", isOn: Binding(
                         get: { doc.project.system.partyMembers.contains(s) },
                         set: { v in
@@ -141,6 +150,7 @@ struct ItemsTab: View {
                         TextField("Price", value: it.price, format: .number)
                         Toggle("Consumable", isOn: it.consumable)
                         UsableFields(doc: doc, scope: it.scope, occasion: it.occasion, hitType: it.hitType, speed: it.speed, successRate: it.successRate, repeats: it.repeats, tpGain: it.tpGain)
+                        AnimationPicker(doc: doc, id: it.animationId)
                         DamageEditor(doc: doc, damage: it.damage)
                         EffectsEditor(doc: doc, effects: it.effects)
                     }.padding()
@@ -228,6 +238,8 @@ struct SystemTab: View {
                 TextField("Currency", text: sys.currencyUnit)
                 LabeledContent("Start Position", value: "\(doc.project.mapName(sys.wrappedValue.startMapId)) (\(sys.wrappedValue.startX), \(sys.wrappedValue.startY))")
                 Text("Right-click the map in Event mode → Set Player Starting Position.").font(.caption).foregroundStyle(.secondary)
+                Toggle("Side-view Battle", isOn: sys.optSideView)
+                Text("Actors appear on the right as img/sv_actors sprites; enemies use img/sv_enemies when present.").font(.caption).foregroundStyle(.secondary)
             }.frame(width: 360)
             NameList(title: "Switches", names: sys.switches)
             NameList(title: "Variables", names: sys.variables)

@@ -22,6 +22,7 @@ public final class Project {
     public var enemies: [Enemy?] = [nil]
     public var troops: [Troop?] = [nil]
     public var states: [StateData?] = [nil]
+    public var animations: [AnimationData?] = [nil]
 
     public init(root: URL) { self.root = root }
 
@@ -56,6 +57,7 @@ public final class Project {
         p.enemies = try read("Enemies.json", [Enemy?].self) ?? [nil]
         p.troops = try read("Troops.json", [Troop?].self) ?? [nil]
         p.states = try read("States.json", [StateData?].self) ?? [nil]
+        p.animations = try read("Animations.json", [AnimationData?].self) ?? [nil]
         for info in p.mapInfos.compactMap({ $0 }) {
             if let m = try read(mapFileName(info.id), GameMap.self) { p.maps[info.id] = m }
         }
@@ -88,6 +90,7 @@ public final class Project {
         try write(enemies, "Enemies.json")
         try write(troops, "Troops.json")
         try write(states, "States.json")
+        try write(animations, "Animations.json")
         for (id, map) in maps { try write(map, Self.mapFileName(id)) }
         // Remove files of deleted maps.
         let live = Set(maps.keys.map(Self.mapFileName))
@@ -117,9 +120,10 @@ public final class Project {
     }
 
     public static let assetFolders = ["img/tilesets", "img/characters", "img/faces", "img/pictures", "img/enemies", "img/sv_enemies",
-                                      "img/battlebacks1", "img/battlebacks2", "img/parallaxes", "img/titles1", "img/system",
+                                      "img/sv_actors", "img/animations", "img/battlebacks1", "img/battlebacks2", "img/parallaxes",
+                                      "img/titles1", "img/system", "effects", "effects/Texture",
                                       "audio/bgm", "audio/bgs", "audio/me", "audio/se"]
-    static let assetExtensions: Set<String> = ["png", "ogg", "m4a", "wav", "mp3", "caf", "aiff"]
+    static let assetExtensions: Set<String> = ["png", "ogg", "m4a", "wav", "mp3", "caf", "aiff", "efkefc", "efk", "efkmat", "efkmodel"]
 
     public func audioURL(_ folder: String, _ name: String) -> URL? {
         let dir = root.appendingPathComponent("audio").appendingPathComponent(folder)

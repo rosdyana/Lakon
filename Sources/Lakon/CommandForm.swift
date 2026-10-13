@@ -20,6 +20,7 @@ enum CommandKind: String, Identifiable, CaseIterable {
     case showPicture = "Show Picture", movePicture = "Move Picture", rotatePicture = "Rotate Picture", erasePicture = "Erase Picture"
     case tint = "Tint Screen", flash = "Flash Screen", shake = "Shake Screen", weather = "Set Weather Effect"
     case vehicleLocation = "Set Vehicle Location", getOnOff = "Get on/off Vehicle"
+    case showAnimation = "Show Animation", battleAnimation = "Show Battle Animation", changeParallax = "Change Parallax"
     case script = "Script", plugin = "Plugin Command"
     var id: String { rawValue }
     var isExtra: Bool { CommandKind.allCases.firstIndex(of: self)! >= CommandKind.allCases.firstIndex(of: .numberInput)! }
@@ -31,11 +32,12 @@ enum CommandKind: String, Identifiable, CaseIterable {
         ("Party", [.gold, .items, .party]),
         ("Actor", [.changeHP, .changeMP, .changeState, .recoverAll, .changeEXP, .changeLevel, .changeSkill, .changeEquip, .changeName]),
         ("Movement", [.transfer, .vehicleLocation, .route, .getOnOff]),
-        ("Character", [.transparency, .balloon, .erase]),
+        ("Character", [.transparency, .showAnimation, .balloon, .erase]),
         ("Picture", [.showPicture, .movePicture, .rotatePicture, .erasePicture]),
         ("Screen & Timing", [.fadeOut, .fadeIn, .tint, .flash, .shake, .weather, .wait]),
         ("Audio", [.playBgm, .fadeBgm, .saveBgm, .resumeBgm, .playBgs, .fadeBgs, .playMe, .playSe, .stopSe]),
         ("Scene Control", [.battle, .shop, .nameInput, .openMenu, .openSave, .gameOver, .title]),
+        ("Map & Battle", [.changeParallax, .battleAnimation]),
         ("System", [.battleBgm, .access]),
         ("Advanced", [.script, .plugin]),
     ]
@@ -47,7 +49,7 @@ enum CommandKind: String, Identifiable, CaseIterable {
          315: .changeEXP, 316: .changeLevel, 318: .changeSkill, 319: .changeEquip, 320: .changeName, 302: .shop, 303: .nameInput,
          241: .playBgm, 242: .fadeBgm, 245: .playBgs, 246: .fadeBgs, 249: .playMe, 250: .playSe, 132: .battleBgm,
          231: .showPicture, 232: .movePicture, 233: .rotatePicture, 235: .erasePicture, 223: .tint, 224: .flash, 225: .shake,
-         236: .weather, 202: .vehicleLocation, 355: .script, 357: .plugin][code]
+         236: .weather, 202: .vehicleLocation, 355: .script, 357: .plugin, 212: .showAnimation, 337: .battleAnimation, 284: .changeParallax][code]
     }
 }
 

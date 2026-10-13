@@ -42,6 +42,25 @@ if args.count >= 3, args[1] == "--decode-audio" {
     print("\(url.lastPathComponent): \(Int(f.sampleRate)) Hz, \(f.channelCount) ch, \(d.buffer.frameLength) frames (\(String(format: "%.2f", Double(d.buffer.frameLength) / f.sampleRate)) s), LOOPSTART=\(d.loopStart.map(String.init) ?? "-") LOOPLENGTH=\(d.loopLength.map(String.init) ?? "-")")
     exit(0)
 }
+if args.count >= 4, args[1] == "--export-web" {
+    // lakon --export-web <project> <outDir>   HTML5 build for itch.io: <Title>-web/ and <Title>-web.zip
+    do {
+        let r = try WebExporter.export(project: try Project.load(from: URL(fileURLWithPath: args[2])), to: URL(fileURLWithPath: args[3]))
+        print("exported \(r.folder.path) (\(r.images) images, \(r.transcoded) ogg→m4a, \(r.copiedAudio) audio copied)")
+        print("zip \(r.zip.path)")
+        for w in r.warnings { print("warning: \(w)") }
+        exit(0)
+    } catch { print("error: \(error.localizedDescription)"); exit(1) }
+}
+if args.count >= 5, args[1] == "--sim" {
+    // lakon --sim <project> <script.json> <out.txt>   headless scripted run; one snapshot line per frame (web parity check)
+    do {
+        let p = try Project.load(from: URL(fileURLWithPath: args[2]))
+        let script = try JSONDecoder().decode(Simulation.Script.self, from: Data(contentsOf: URL(fileURLWithPath: args[3])))
+        try (Simulation.run(project: p, script: script).joined(separator: "\n") + "\n").write(toFile: args[4], atomically: true, encoding: .utf8)
+        print("wrote \(args[4])"); exit(0)
+    } catch { print("error: \(error)"); exit(1) }
+}
 if args.count >= 4, args[1] == "--import" {
     // lakon --import <mzProject> <newLakonProject>   (source is only read)
     do { let p = try Project.importMZ(from: URL(fileURLWithPath: args[2]), to: URL(fileURLWithPath: args[3]))

@@ -55,6 +55,15 @@ final class GameScene: SKScene {
     private var charNodes: [ObjectIdentifier: CharacterSprite] = [:]
     private var pictureNodes: [Int: SKSpriteNode] = [:]
     private var weatherSprites: [SKSpriteNode] = []
+    // Parallax (Spriteset_Map._parallax, a TilingSprite) and map animations (Show Animation, 212).
+    let parallaxLayer = SKNode()
+    private var parallaxSprites: [SKSpriteNode] = []
+    let animLayer = SKNode()
+    private var animNodes: [SKSpriteNode] = []
+    private var mapAnims: [(playback: AnimationPlayback, target: ObjectIdentifier)] = []
+    private var animSerials: [ObjectIdentifier: Int] = [:]
+    private var animFlash: [ObjectIdentifier: [Double]] = [:]
+    private var animHidden = Set<ObjectIdentifier>()
     private var textures: [String: SKTexture] = [:]
     private var sheets: [String: CGImage] = [:]
     var mapNameTimer = 0
@@ -80,6 +89,8 @@ final class GameScene: SKScene {
         scaleMode = .aspectFit
         backgroundColor = .black
         effect.addChild(worldNode)
+        parallaxLayer.zPosition = -1; effect.addChild(parallaxLayer)
+        animLayer.zPosition = 9
         effect.shouldRasterize = false
         effect.shouldEnableEffects = false
         effect.filter = toneFilter
@@ -105,9 +116,11 @@ final class GameScene: SKScene {
     override func keyDown(with e: NSEvent) {
         let k = e.keyCode
         shift = e.modifierFlags.contains(.shift)
+        // While naming an actor, Z / X / Space type letters instead of confirming or cancelling.
+        let typing = nameUI != nil && [6, 7, 49].contains(k)
         switch k {
-        case 6, 36, 49, 76: if !e.isARepeat { pending.ok = true }
-        case 7, 53: if !e.isARepeat { pending.cancel = true }
+        case 6, 36, 49, 76: if !e.isARepeat && !typing { pending.ok = true }
+        case 7, 53: if !e.isARepeat && !typing { pending.cancel = true }
         case 51: pending.backspace = true; if !e.isARepeat && nameUI == nil { pending.cancel = true }
         case 126: pending.up = true
         case 125: pending.down = true
@@ -347,7 +360,94 @@ final class GameScene: SKScene {
         scroll = CGPoint(x: sx.rounded(), y: sy.rounded())
         worldNode.position = CGPoint(x: -scroll.x + CGFloat(world.screen.shake), y: Self.H + scroll.y)
         updateChunks()
+        renderParallax()
+        updateMapAnimations()
         renderCharacters()
+        drawMapAnimations()
+    }
+
+    /// Spriteset_Map.updateParallax: a tiling image whose origin follows Game_Map.parallaxOx/Oy.
+    private func renderParallax() {
+        let par = world.state.parallax
+        guard !par.name.isEmpty, let tex = texture("parallaxes", par.name) else {
+            parallaxSprites.forEach { $0.isHidden = true }; return
+        }
+        let (ox, oy) = par.origin(displayX: Double(scroll.x) / Double(tileSize), displayY: Double(scroll.y) / Double(tileSize))
+        let w = tex.size().width, h = tex.size().height
+        guard w > 0, h > 0 else { return }
+        let cols = Int(ceil(Self.W / w)) + 1, rows = Int(ceil(Self.H / h)) + 1
+        while parallaxSprites.count < cols * rows { let n = SKSpriteNode(); n.anchorPoint = CGPoint(x: 0, y: 1); parallaxLayer.addChild(n); parallaxSprites.append(n) }
+        let fx = CGFloat(ox).truncatingRemainder(dividingBy: w), fy = CGFloat(oy).truncatingRemainder(dividingBy: h)
+        let startX = -(fx < 0 ? fx + w : fx) + CGFloat(world.screen.shake), startY = -(fy < 0 ? fy + h : fy)
+        for (k, n) in parallaxSprites.enumerated() {
+            guard k < cols * rows else { n.isHidden = true; continue }
+            n.isHidden = false
+            if n.texture !== tex { n.texture = tex; n.size = tex.size() }
+            n.position = CGPoint(x: (startX + CGFloat(k % cols) * w).rounded(), y: Self.H - (startY + CGFloat(k / cols) * h).rounded())
+        }
+    }
+
+    /// Starts animations requested by Show Animation and advances them (SEs play here, like MZ's sprites).
+    private func updateMapAnimations() {
+        var chars: [GameCharacter] = [world.player] + world.events + world.followers + world.visibleVehicles
+        chars = chars.filter { $0.animationId > 0 }
+        for c in chars {
+            let key = ObjectIdentifier(c)
+            if animSerials[key] != c.animationSerial, let a = project.animation(c.animationId) {
+                animSerials[key] = c.animationSerial
+                mapAnims.append((AnimationPlayback(a, targets: [0], mirror: false, delay: AnimationData.baseDelay), key))
+            }
+        }
+        animFlash = [:]; animHidden = []
+        for m in mapAnims {
+            for se in m.playback.update() { audio.handle([.playSe(se)]) }
+            if m.playback.flashColor[3] > 0 { animFlash[m.target] = m.playback.flashColor }
+            if m.playback.hidingTargets { animHidden.insert(m.target) }
+        }
+        mapAnims.removeAll { !$0.playback.isPlaying }
+    }
+
+    private func drawMapAnimations() {
+        if animLayer.parent == nil { worldNode.addChild(animLayer) }
+        var used = 0
+        func node() -> SKSpriteNode {
+            if used == animNodes.count { let n = SKSpriteNode(); animLayer.addChild(n); animNodes.append(n) }
+            used += 1
+            let n = animNodes[used - 1]; n.isHidden = false; n.shader = nil
+            return n
+        }
+        for (k, m) in mapAnims.enumerated() where m.playback.started {
+            let d = m.playback.animation
+            guard let target = charNodes[m.target] else { continue }
+            let h = target.body.size.height > 0 ? target.body.size.height : 48
+            var o = target.position
+            if d.isScreen { o = CGPoint(x: Self.W / 2 - worldNode.position.x, y: Self.H / 2 - worldNode.position.y) }
+            else if d.isMV { o.y += d.position == 0 ? h : d.position == 1 ? h / 2 : 0 }
+            else { o.y += d.alignBottom ? 0 : h / 2; o.x += CGFloat(d.offsetX); o.y -= CGFloat(d.offsetY) }
+            for c in m.playback.cells {
+                let name = c.sheet == 1 ? d.animation1Name : d.animation2Name
+                guard let tex = subTexture("animations", name, CGRect(x: (c.pattern % 5) * 192, y: (c.pattern / 5) * 192, width: 192, height: 192)) else { continue }
+                let n = node()
+                n.texture = tex; n.size = CGSize(width: 192, height: 192)
+                n.position = CGPoint(x: o.x + CGFloat(c.x), y: o.y - CGFloat(c.y))
+                n.zRotation = -CGFloat(c.rotation); n.xScale = CGFloat(c.scaleX); n.yScale = CGFloat(c.scaleY)
+                n.alpha = CGFloat(c.opacity / 255); n.blendMode = [.alpha, .add, .multiply, .screen][max(0, min(3, c.blend))]
+            }
+            if let t = m.playback.standInProgress {
+                let col = AnimationArt.standInColor(d), sc = CGFloat(d.scale) / 100
+                let g = node(); g.texture = AnimationArt.glow; g.size = CGSize(width: 160 * sc, height: 160 * sc); g.position = o
+                g.zRotation = 0; g.xScale = 1; g.yScale = 1; g.alpha = CGFloat(sin(t * .pi)); g.blendMode = .add
+                g.color = NSColor(red: col.0 / 255, green: col.1 / 255, blue: col.2 / 255, alpha: 1); g.colorBlendFactor = 1
+                let r = node(); r.texture = AnimationArt.ring; let rs = (30 + 120 * CGFloat(t)) * sc
+                r.size = CGSize(width: rs, height: rs); r.position = o; r.zRotation = 0; r.xScale = 1; r.yScale = 1
+                r.alpha = CGFloat(1 - t); r.blendMode = .add; r.color = g.color; r.colorBlendFactor = 1
+            }
+            let f = m.playback.screenFlashColor
+            if f[3] > 0.5 {
+                ui.rect("map.anflash\(k)", CGRect(x: 0, y: 0, width: Self.W, height: Self.H), color: NSColor(red: f[0] / 255, green: f[1] / 255, blue: f[2] / 255, alpha: f[3] / 255), z: -40)
+            }
+        }
+        for n in animNodes.dropFirst(used) { n.isHidden = true }
     }
 
     private func resetMap() {
@@ -355,6 +455,7 @@ final class GameScene: SKScene {
         chunkNodes.values.forEach { $0.removeFromParent() }; chunkNodes = [:]
         chunkTextures = [:]; chunkOrder = []; animatedChunks = []
         charNodes.values.forEach { $0.removeFromParent() }; charNodes = [:]
+        mapAnims = []; animSerials = [:]
         renderer = TileRenderer(project: project, tileset: world.tileset)
         textures = textures.filter { !$0.key.hasPrefix("tile:") }
         // Chunks containing A1 (animated water) re-render on frame changes.
@@ -420,7 +521,7 @@ final class GameScene: SKScene {
             var tex: SKTexture?
             if c.tileId > 0 { tex = tileTexture(c.tileId) }
             else if !c.characterName.isEmpty { tex = characterTexture(c.characterName, c.characterIndex, c.direction, c.patternIndex) }
-            node.isHidden = c.transparent || (tex == nil && c.balloonId == 0 && c.animationId == 0)
+            node.isHidden = c.transparent || (tex == nil && c.balloonId == 0)
             let altitude = (c as? GameVehicle)?.altitude ?? 0
             let shift: CGFloat = c.tileId > 0 || c.isObjectCharacter ? 0 : 6
             node.position = CGPoint(x: (CGFloat(c.realX) * ts + ts / 2).rounded(), y: -(CGFloat(c.realY) * ts + ts - shift).rounded() + CGFloat(altitude))
@@ -428,7 +529,7 @@ final class GameScene: SKScene {
             node.zPosition = CGFloat(c.priorityType * 2 + 1) + CGFloat(c.realY) / 1000 + (altitude > 0 ? 5 : 0)
             let bush = !(c is GameVehicle) && c.tileId == 0 && world.isBush(c.x, c.y) && !c.isMoving
             node.update(texture: tex, bush: bush, balloon: c.balloonId, balloonFrames: c.balloonFrames,
-                        animation: c.animationId, animationFrames: c.animationFrames, shadow: altitude, frame: ui.frame)
+                        flash: animFlash[key], hidden: animHidden.contains(key), shadow: altitude, frame: ui.frame)
         }
         for (k, n) in charNodes where !seen.contains(k) { n.removeFromParent(); charNodes[k] = nil }
     }
@@ -445,6 +546,16 @@ final class GameScene: SKScene {
         let key = "img:\(folder)/\(name)"
         if let t = textures[key] { return t }
         guard let img = sheet(folder, name) else { return nil }
+        let t = SKTexture(cgImage: img); t.filteringMode = .linear
+        textures[key] = t
+        return t
+    }
+
+    /// A cached crop of an image (pixel rect, top-left origin): sv_actors frames, weapons, animation cells, overlays.
+    func subTexture(_ folder: String, _ name: String, _ r: CGRect) -> SKTexture? {
+        let key = "sub:\(folder)/\(name):\(Int(r.minX)),\(Int(r.minY)),\(Int(r.width)),\(Int(r.height))"
+        if let t = textures[key] { return t }
+        guard let s = sheet(folder, name), let img = s.cropping(to: r) else { return nil }
         let t = SKTexture(cgImage: img); t.filteringMode = .linear
         textures[key] = t
         return t
@@ -644,7 +755,8 @@ final class CharacterSprite: SKNode {
     let balloon = SKNode()
     let balloonBg = SKShapeNode(rectOf: CGSize(width: 34, height: 30), cornerRadius: 9)
     let balloonText = SKLabelNode()
-    let burst = SKShapeNode(circleOfRadius: 20)
+    /// Animation flash (Sprite.setBlendColor) drawn as a coloured silhouette over the body.
+    let flashNode = SKSpriteNode()
 
     override init() {
         super.init()
@@ -654,15 +766,14 @@ final class CharacterSprite: SKNode {
         balloonBg.fillColor = .white; balloonBg.strokeColor = NSColor(white: 0.2, alpha: 1); balloonBg.lineWidth = 2
         balloonText.fontName = "Avenir Next Heavy"; balloonText.fontSize = 20; balloonText.verticalAlignmentMode = .center
         balloon.addChild(balloonBg); balloon.addChild(balloonText); balloon.zPosition = 2; addChild(balloon)
-        burst.strokeColor = NSColor(red: 1, green: 0.9, blue: 0.5, alpha: 1); burst.lineWidth = 3; burst.fillColor = NSColor(white: 1, alpha: 0.15)
-        burst.zPosition = 3; addChild(burst)
+        flashNode.anchorPoint = CGPoint(x: 0.5, y: 0); flashNode.shader = SceneUI.flashShader; flashNode.zPosition = 0.02; addChild(flashNode)
     }
     required init?(coder: NSCoder) { fatalError() }
 
     static let balloonGlyphs = ["", "!", "?", "♪", "♥", "💢", "💧", "～", "…", "💡", "Zz"]
     static let balloonColors: [NSColor] = [.black, .systemRed, .systemBlue, .systemPurple, .systemPink, .systemRed, .systemBlue, .darkGray, .darkGray, .systemOrange, .systemIndigo]
 
-    func update(texture: SKTexture?, bush: Bool, balloon id: Int, balloonFrames: Int, animation: Int, animationFrames: Int, shadow alt: Double, frame: Int) {
+    func update(texture: SKTexture?, bush: Bool, balloon id: Int, balloonFrames: Int, flash: [Double]?, hidden: Bool, shadow alt: Double, frame: Int) {
         body.texture = texture
         if let t = texture {
             let full = t.size()
@@ -687,12 +798,11 @@ final class CharacterSprite: SKNode {
             balloon.setScale(max(0.2, pop))
             balloon.position = CGPoint(x: 0, y: (texture?.size().height ?? 48) + 18)
         }
-        burst.isHidden = animation == 0
-        if animation != 0 {
-            let t = CGFloat(40 - animationFrames) / 40
-            burst.setScale(0.4 + t * 1.6); burst.alpha = 1 - t
-            burst.position = CGPoint(x: 0, y: 24)
-        }
+        body.isHidden = hidden; bushPart.isHidden = bushPart.isHidden || hidden
+        if let f = flash, let t = texture, !hidden {
+            flashNode.isHidden = false; flashNode.texture = t; flashNode.size = t.size()
+            flashNode.setValue(SKAttributeValue(vectorFloat4: vector_float4(Float(f[0] / 255), Float(f[1] / 255), Float(f[2] / 255), Float(f[3] / 255))), forAttribute: "a_flash")
+        } else { flashNode.isHidden = true }
     }
 }
 

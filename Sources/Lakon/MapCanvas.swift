@@ -40,6 +40,19 @@ final class MapCanvasView: NSView {
         let x0 = max(0, Int(dirtyRect.minX / c)), y0 = max(0, Int(dirtyRect.minY / c))
         let x1 = min(m.width, Int(ceil(dirtyRect.maxX / c))), y1 = min(m.height, Int(ceil(dirtyRect.maxY / c)))
         guard x0 < x1, y0 < y1 else { return }
+        // Parallax behind the tiles ("Show in the Editor" in map properties), tiled from the map's top-left.
+        if m.parallaxShow, !m.parallaxName.isEmpty,
+           let img = doc.characterSheetCache("parallaxes/" + m.parallaxName, { loadPNG(doc.project.imageURL("parallaxes", m.parallaxName)) }) {
+            let scale = c / CGFloat(tileSize), w = CGFloat(img.width) * scale, h = CGFloat(img.height) * scale
+            ctx.saveGState(); ctx.clip(to: CGRect(x: 0, y: 0, width: CGFloat(m.width) * c, height: CGFloat(m.height) * c))
+            var py = floor(dirtyRect.minY / h) * h
+            while py < dirtyRect.maxY {
+                var px = floor(dirtyRect.minX / w) * w
+                while px < dirtyRect.maxX { ctx.drawUpright(img, in: CGRect(x: px, y: py, width: w, height: h)); px += w }
+                py += h
+            }
+            ctx.restoreGState()
+        }
         for y in y0..<y1 { for x in x0..<x1 {
             for z in 0..<4 { r.draw(m.tileId(x, y, z), in: ctx, x: CGFloat(x) * c, y: CGFloat(y) * c, size: c) }
         } }

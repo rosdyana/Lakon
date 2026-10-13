@@ -15,7 +15,7 @@ public enum SampleProject {
         try DefaultAudio.writeAll(to: p)
         buildDatabase(p, title: title)
         if withDemo {
-            buildVillage(p); buildHouse(p); buildWorld(p)
+            buildVillage(p); buildHouse(p); buildWorld(p); buildSkyLedge(p)
             try writeDemoPlugin(p)
         } else {
             p.createMap(name: "MAP001", fill: A.a2(A.grass)); fixShapes(&p.maps[1]!)
@@ -50,53 +50,57 @@ public enum SampleProject {
         s.airship = VehicleData(characterName: "Vehicle", characterIndex: 3); s.airship.bgm = AudioFile("Ship"); s.airship.startMapId = 3; s.airship.startX = 31; s.airship.startY = 17
         s.battleback1Name = "Grassland"; s.battleback2Name = "Grassland"
         s.partyMembers = [1]
+        s.optSideView = true
         p.system = s
+        p.animations = DefaultArt.animations()
         p.tilesets = [nil, DefaultArt.tileset()]
 
         // States (1 = death, 2 = guard, as MZ expects)
-        var ko = StateData(id: 1, name: "Knockout"); ko.restriction = 4; ko.priority = 100; ko.iconIndex = A.iconKnockout
+        var ko = StateData(id: 1, name: "Knockout"); ko.restriction = 4; ko.priority = 100; ko.iconIndex = A.iconKnockout; ko.motion = 3
         ko.message1 = "%1 has fallen!"; ko.message2 = "%1 is defeated!"; ko.message4 = "%1 revives!"
         var guardS = StateData(id: 2, name: "Guard"); guardS.autoRemovalTiming = 2; guardS.removeAtBattleEnd = true; guardS.priority = 0
         guardS.traits = [Trait(Trait.specialFlag, 1, 0)]; guardS.iconIndex = A.iconGuard
         var poison = StateData(id: 3, name: "Poison"); poison.iconIndex = A.iconPoison; poison.priority = 50
         poison.traits = [Trait(Trait.xparam, 7, -0.1)]; poison.message1 = "%1 is poisoned!"; poison.message2 = "%1 is poisoned!"; poison.message4 = "%1 is no longer poisoned."
-        poison.removeByWalking = true; poison.stepsToRemove = 60
+        poison.removeByWalking = true; poison.stepsToRemove = 60; poison.motion = 1; poison.overlay = 1
         var sleep = StateData(id: 4, name: "Sleep"); sleep.iconIndex = A.iconSleep; sleep.restriction = 4; sleep.priority = 70
         sleep.autoRemovalTiming = 2; sleep.minTurns = 2; sleep.maxTurns = 4; sleep.removeByDamage = true; sleep.removeAtBattleEnd = true
+        sleep.motion = 2; sleep.overlay = 7
         sleep.traits = [Trait(Trait.xparam, 1, -1)]; sleep.message1 = "%1 falls asleep!"; sleep.message2 = "%1 falls asleep!"; sleep.message4 = "%1 wakes up."
         var blind = StateData(id: 5, name: "Blind"); blind.iconIndex = A.iconBlind; blind.autoRemovalTiming = 2; blind.minTurns = 3; blind.maxTurns = 5
+        blind.motion = 1; blind.overlay = 2
         blind.removeAtBattleEnd = true; blind.traits = [Trait(Trait.xparam, 0, -0.5)]; blind.message1 = "%1 is blinded!"; blind.message2 = "%1 is blinded!"; blind.message4 = "%1 can see again."
         p.states = [nil, ko, guardS, poison, sleep, blind]
 
         // Skills
         func skill(_ id: Int, _ name: String, _ desc: String, stype: Int, mp: Int = 0, tp: Int = 0, scope: Int, occasion: Int = 1,
-                   hit: Int, type: Int, formula: String, element: Int = 0, effects: [Effect] = [], msg: String = "%1 casts %2!", icon: Int = 0, repeats: Int = 1) -> Skill {
-            var k = Skill(id: id, name: name); k.description = desc; k.stypeId = stype; k.mpCost = mp; k.tpCost = tp; k.scope = scope
+                   hit: Int, type: Int, formula: String, element: Int = 0, effects: [Effect] = [], msg: String = "%1 casts %2!", icon: Int = 0, repeats: Int = 1, anim: Int = 0) -> Skill {
+            var k = Skill(id: id, name: name); k.description = desc; k.stypeId = stype; k.mpCost = mp; k.tpCost = tp; k.scope = scope; k.animationId = anim
             k.occasion = occasion; k.hitType = hit; k.damage = Damage(type: type, formula: formula, elementId: element, critical: hit == 1)
             k.effects = effects; k.message1 = msg; k.iconIndex = icon; k.repeats = repeats
             return k
         }
         var attack = skill(1, "Attack", "Basic attack.", stype: 0, scope: 1, hit: 1, type: 1, formula: "a.atk * 4 - b.def * 2", element: -1,
-                           effects: [Effect(Effect.addState, 0, 1)], msg: "%1 attacks!", icon: A.iconSword)
+                           effects: [Effect(Effect.addState, 0, 1)], msg: "%1 attacks!", icon: A.iconSword, anim: -1)
         attack.tpGain = 5
         var guardK = skill(2, "Guard", "Halves damage this turn.", stype: 0, scope: 11, hit: 0, type: 0, formula: "0",
                            effects: [Effect(Effect.addState, 2, 1)], msg: "%1 guards.", icon: A.iconGuard)
         guardK.speed = 2000; guardK.tpGain = 10
         p.skills = [nil, attack, guardK,
-            skill(3, "Fire", "Fire damage to one enemy.", stype: 1, mp: 5, scope: 1, hit: 2, type: 1, formula: "100 + a.mat * 2 - b.mdf * 2", element: 2, icon: A.iconFire),
-            skill(4, "Heal", "Restores HP of one ally.", stype: 1, mp: 5, scope: 7, occasion: 0, hit: 0, type: 3, formula: "200 + a.mat", icon: A.iconHeal),
-            skill(5, "Double Slash", "Two quick strikes.", stype: 2, tp: 25, scope: 1, hit: 1, type: 1, formula: "a.atk * 4 - b.def * 2", element: -1, msg: "%1 uses %2!", icon: A.iconSlash, repeats: 2),
-            skill(6, "Spark", "Lightning on one target.", stype: 1, mp: 6, scope: 1, hit: 2, type: 1, formula: "80 + a.mat * 2 - b.mdf * 2", element: 3, icon: A.iconThunder),
+            skill(3, "Fire", "Fire damage to one enemy.", stype: 1, mp: 5, scope: 1, hit: 2, type: 1, formula: "100 + a.mat * 2 - b.mdf * 2", element: 2, icon: A.iconFire, anim: 3),
+            skill(4, "Heal", "Restores HP of one ally.", stype: 1, mp: 5, scope: 7, occasion: 0, hit: 0, type: 3, formula: "200 + a.mat", icon: A.iconHeal, anim: 6),
+            skill(5, "Double Slash", "Two quick strikes.", stype: 2, tp: 25, scope: 1, hit: 1, type: 1, formula: "a.atk * 4 - b.def * 2", element: -1, msg: "%1 uses %2!", icon: A.iconSlash, repeats: 2, anim: -1),
+            skill(6, "Spark", "Lightning on one target.", stype: 1, mp: 6, scope: 1, hit: 2, type: 1, formula: "80 + a.mat * 2 - b.mdf * 2", element: 3, icon: A.iconThunder, anim: 4),
             skill(7, "Venom Bite", "Bite that may poison.", stype: 2, scope: 1, hit: 1, type: 1, formula: "a.atk * 4 - b.def * 2",
-                  effects: [Effect(Effect.addState, 3, 0.5)], msg: "%1 bites!", icon: A.iconPoison),
+                  effects: [Effect(Effect.addState, 3, 0.5)], msg: "%1 bites!", icon: A.iconPoison, anim: 7),
             skill(8, "Lullaby", "Puts enemies to sleep.", stype: 1, mp: 4, scope: 2, hit: 2, type: 0, formula: "0",
-                  effects: [Effect(Effect.addState, 4, 0.4)], msg: "%1 sings a lullaby!", icon: A.iconSleep),
-            skill(9, "Blizzard", "Ice damage to all enemies.", stype: 1, mp: 10, scope: 2, hit: 2, type: 1, formula: "120 + a.mat * 2 - b.mdf * 2", element: 4, icon: A.iconIce),
+                  effects: [Effect(Effect.addState, 4, 0.4)], msg: "%1 sings a lullaby!", icon: A.iconSleep, anim: 8),
+            skill(9, "Blizzard", "Ice damage to all enemies.", stype: 1, mp: 10, scope: 2, hit: 2, type: 1, formula: "120 + a.mat * 2 - b.mdf * 2", element: 4, icon: A.iconIce, anim: 5),
             skill(10, "Cure", "Removes poison and blindness.", stype: 1, mp: 4, scope: 7, occasion: 0, hit: 0, type: 0, formula: "0",
-                  effects: [Effect(Effect.removeState, 3, 1), Effect(Effect.removeState, 5, 1)], icon: A.iconHeal),
-            skill(11, "Regrowth", "The spirit heals itself.", stype: 1, mp: 10, scope: 11, hit: 0, type: 3, formula: "300", msg: "%1 regrows its bark!", icon: A.iconHeal),
+                  effects: [Effect(Effect.removeState, 3, 1), Effect(Effect.removeState, 5, 1)], icon: A.iconHeal, anim: 6),
+            skill(11, "Regrowth", "The spirit heals itself.", stype: 1, mp: 10, scope: 11, hit: 0, type: 3, formula: "300", msg: "%1 regrows its bark!", icon: A.iconHeal, anim: 12),
             skill(12, "Dust Cloud", "Blinds all enemies.", stype: 2, scope: 2, hit: 2, type: 0, formula: "0",
-                  effects: [Effect(Effect.addState, 5, 0.6)], msg: "%1 kicks up dust!", icon: A.iconBlind),
+                  effects: [Effect(Effect.addState, 5, 0.6)], msg: "%1 kicks up dust!", icon: A.iconBlind, anim: 9),
         ]
 
         // Classes
@@ -109,16 +113,16 @@ public enum SampleProject {
         p.classes = [nil, warrior, mage]
 
         var arya = Actor(id: 1, name: "Arya", characterName: "Actor1", characterIndex: 0)
-        arya.nickname = "The Wanderer"; arya.classId = 1; arya.equips = [1, 3, 0, 1, 0]
+        arya.nickname = "The Wanderer"; arya.classId = 1; arya.equips = [1, 3, 0, 1, 0]; arya.battlerName = "Actor1_1"
         arya.profile = "A traveller who came to Kampung Lakon on foot."
         var sekar = Actor(id: 2, name: "Sekar", characterName: "Actor1", characterIndex: 1)
-        sekar.nickname = "Village Healer"; sekar.classId = 2; sekar.equips = [2, 0, 0, 2, 0]
+        sekar.nickname = "Village Healer"; sekar.classId = 2; sekar.equips = [2, 0, 0, 2, 0]; sekar.battlerName = "Actor1_2"
         sekar.profile = "The elder's granddaughter. Knows the old songs."
         p.actors = [nil, arya, sekar]
 
         // Items
-        func item(_ id: Int, _ name: String, _ desc: String, price: Int, icon: Int, scope: Int = 7, occasion: Int = 0, effects: [Effect] = [], damage: Damage = Damage(), itype: Int = 1, consumable: Bool = true) -> Item {
-            var i = Item(id: id, name: name, description: desc, price: price); i.iconIndex = icon; i.scope = scope; i.occasion = occasion
+        func item(_ id: Int, _ name: String, _ desc: String, price: Int, icon: Int, scope: Int = 7, occasion: Int = 0, effects: [Effect] = [], damage: Damage = Damage(), itype: Int = 1, consumable: Bool = true, anim: Int = 6) -> Item {
+            var i = Item(id: id, name: name, description: desc, price: price); i.iconIndex = icon; i.scope = scope; i.occasion = occasion; i.animationId = anim
             i.effects = effects; i.damage = damage; i.itypeId = itype; i.consumable = consumable
             if damage.type > 0 && scope <= 6 { i.hitType = 2 }
             return i
@@ -128,10 +132,11 @@ public enum SampleProject {
             item(2, "Old Key", "Opens something, somewhere.", price: 0, icon: A.iconKey, scope: 0, occasion: 3, itype: 2, consumable: false),
             item(3, "Magic Water", "Restores 50 MP.", price: 120, icon: A.iconEther, effects: [Effect(Effect.recoverMp, 0, 0, 50)]),
             item(4, "Antidote", "Cures poison.", price: 30, icon: A.iconAntidote, effects: [Effect(Effect.removeState, 3, 1)]),
-            item(5, "Fire Scroll", "Burns all enemies.", price: 150, icon: A.iconScroll, scope: 2, occasion: 1, damage: Damage(type: 1, formula: "150", elementId: 2)),
+            item(5, "Fire Scroll", "Burns all enemies.", price: 150, icon: A.iconScroll, scope: 2, occasion: 1, damage: Damage(type: 1, formula: "150", elementId: 2), anim: 3),
         ]
         func weapon(_ id: Int, _ name: String, _ desc: String, wtype: Int, atk: Int, mat: Int = 0, price: Int, icon: Int) -> EquipItem {
             var w = EquipItem(id: id, name: name, etypeId: 1, params: [0, 0, atk, 0, mat, 0, 0, 0], price: price)
+            w.animationId = wtype == 1 ? 1 : 2
             w.description = desc; w.wtypeId = wtype; w.iconIndex = icon; w.traits = [Trait(Trait.attackElement, 1, 0)]
             return w
         }
@@ -169,19 +174,19 @@ public enum SampleProject {
                   actions: [EnemyAction(skillId: 1), EnemyAction(skillId: 6, rating: 5), EnemyAction(skillId: 12, rating: 3), regrow],
                   drops: [DropItem(kind: 3, dataId: 5, denominator: 1)], weak: 2),
         ]
-        var bossTroop = Troop(id: 4, name: "Forest Spirit", members: [TroopMember(enemyId: 4, x: 408, y: 420)])
+        var bossTroop = Troop(id: 4, name: "Forest Spirit", members: [TroopMember(enemyId: 4, x: 280, y: 430)])
         var enraged = TroopPage()
         enraged.conditions.enemyValid = true; enraged.conditions.enemyIndex = 0; enraged.conditions.enemyHp = 50
-        enraged.list = [Cmd.shake(power: 6, speed: 6, duration: 30), Cmd.flash([255, 120, 60, 170], duration: 30)]
+        enraged.list = [EventCommand(code: 337, indent: 0, parameters: [0, 12, false]), Cmd.shake(power: 6, speed: 6, duration: 30), Cmd.flash([255, 120, 60, 170], duration: 30)]
             + Cmd.text(["The Forest Spirit's eyes blaze green!"]) + [.end(0)]
         var opening = TroopPage()
         opening.conditions.turnValid = true; opening.conditions.turnA = 0
         opening.list = Cmd.text(["\"Who disturbs the grove?\""], speaker: "Forest Spirit") + [.end(0)]
         bossTroop.pages = [opening, enraged]
         p.troops = [nil,
-            Troop(id: 1, name: "Slime x2", members: [TroopMember(enemyId: 1, x: 300, y: 420), TroopMember(enemyId: 1, x: 516, y: 420)]),
-            Troop(id: 2, name: "Bat, Slime", members: [TroopMember(enemyId: 2, x: 300, y: 360), TroopMember(enemyId: 1, x: 516, y: 420)]),
-            Troop(id: 3, name: "Ular x2", members: [TroopMember(enemyId: 3, x: 290, y: 430), TroopMember(enemyId: 3, x: 526, y: 430)]),
+            Troop(id: 1, name: "Slime x2", members: [TroopMember(enemyId: 1, x: 200, y: 330), TroopMember(enemyId: 1, x: 340, y: 420)]),
+            Troop(id: 2, name: "Bat, Slime", members: [TroopMember(enemyId: 2, x: 210, y: 300), TroopMember(enemyId: 1, x: 360, y: 420)]),
+            Troop(id: 3, name: "Ular x2", members: [TroopMember(enemyId: 3, x: 190, y: 340), TroopMember(enemyId: 3, x: 350, y: 430)]),
             bossTroop,
         ]
 
@@ -316,7 +321,7 @@ public enum SampleProject {
             Cmd.text(["A night's rest is 20 \\G. Stay?"], speaker: "Innkeeper")
             + Cmd.choices([
                 ("Stay", Cmd.branch(Cmd.ifGold(20),
-                                    then: [Cmd.gold(-20), Cmd.fadeOut(), Cmd.playMe("Inn"), Cmd.recoverAll(), Cmd.wait(150), Cmd.fadeIn()]
+                                    then: [Cmd.gold(-20), Cmd.fadeOut(), Cmd.playMe("Inn"), Cmd.recoverAll(), Cmd.wait(150), Cmd.fadeIn(), Cmd.showAnimation(character: -1, 11)]
                                         + Cmd.text(["Good morning! Everyone is fully rested."], speaker: "Innkeeper"),
                                     else: Cmd.text(["Ah… you're short on coin."], speaker: "Innkeeper"))),
                 ("Leave", Cmd.text(["Come back anytime."], speaker: "Innkeeper")),
@@ -333,6 +338,9 @@ public enum SampleProject {
         // Weather off when you come back from the rainy world map.
         ev.add("Clear Sky", 1, 1, [page(EventImage(), trigger: .parallel, priority: .below,
             [Cmd.weather("none", power: 0, duration: 60), Cmd.fadeOutBgs(2), Cmd.eraseEvent()])])
+
+        // North gap in the trees → Sky Ledge (parallax demo).
+        ev.add("To Sky Ledge", 12, 0, [page(EventImage(), trigger: .playerTouch, priority: .below, [Cmd.playSe("Wind"), Cmd.transfer(map: 4, x: 8, y: 11, direction: 8)])])
 
         // Road east → world map.
         for y in [10, 11] {
@@ -432,6 +440,36 @@ public enum SampleProject {
                                                                                             win: bossWin, lose: Cmd.text(["You wake at the shrine's foot, bruised."]))),
                                                                               ("Leave", [])], cancel: 1)),
             page(EventImage(), [Cmd.balloon(character: -1, 4)] + Cmd.text(["The shrine is peaceful now."])) { $0.selfSwitchValid = true },
+        ])
+        m.events = ev.events
+        p.maps[id] = m
+    }
+
+    // MARK: sky ledge (parallax, Show Animation, Change Parallax)
+
+    static func buildSkyLedge(_ p: Project) {
+        let id = p.createMap(name: "Sky Ledge", width: 17, height: 13, fill: 0)
+        var m = p.maps[id]!
+        m.displayName = "Sky Ledge"
+        m.parallaxName = "Sky"; m.parallaxLoopX = true; m.parallaxSx = -2
+        m.autoplayBgs = true; m.bgs = AudioFile("Rain", volume: 25, pitch: 60)
+        // A floating stone path: empty cells show the parallax and can't be walked on.
+        for y in 4..<13 { m.place(A.a5(A.a5Cobble), 8, y) }
+        for y in 3..<7 { for x in 4..<13 { m.place(A.a5(A.a5Cobble), x, y) } }
+        m.place(A.bShrine, 8, 3); m.place(A.bLampTop, 5, 3); m.place(A.bLampPost, 5, 4); m.place(A.bLampTop, 11, 3); m.place(A.bLampPost, 11, 4)
+        fixShapes(&m)
+        let ev = EventList()
+        ev.add("Back", 8, 12, [page(EventImage(), trigger: .playerTouch, priority: .below, [Cmd.transfer(map: 1, x: 12, y: 1, direction: 2)])])
+        ev.add("Wind Spirit", 6, 5, [page(EventImage(characterName: "Actor1", characterIndex: 7),
+            [Cmd.showAnimation(character: 0, 10)] + Cmd.text(["The wind carries the clouds past this ledge.", "Open the star chest and the sky turns to night."], speaker: "Wind Spirit")
+            + [Cmd.showAnimation(character: -1, 11, wait: false)])])
+        ev.add("Star Chest", 10, 5, [
+            page(EventImage(characterName: "!Objects", characterIndex: 0, direction: 2),
+                 [Cmd.playSe("Magic_Evasion"), Cmd.showAnimation(character: 0, 11), Cmd.changeParallax("!Starlit"),
+                  Cmd.tint([-34, -34, 0, 34], duration: 30, wait: true)] + Cmd.text(["Stars spill out of the chest.", "The sky darkens into a field of stars."]) + [Cmd.selfSwitch("A", true)]),
+            page(EventImage(characterName: "!Objects", characterIndex: 0, direction: 8),
+                 [Cmd.playSe("Magic_Evasion"), Cmd.showAnimation(character: 0, 11), Cmd.changeParallax("Sky", loopX: true, sx: -2),
+                  Cmd.tint([0, 0, 0, 0], duration: 30, wait: true)] + Cmd.text(["You close the chest. Daylight returns."]) + [Cmd.selfSwitch("A", false)]) { $0.selfSwitchValid = true },
         ])
         m.events = ev.events
         p.maps[id] = m

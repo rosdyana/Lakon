@@ -439,5 +439,6 @@ public enum DefaultArt {
         try writePNG(makeBattleback1(), to: project.imageURL("battlebacks1", "Grassland"))
         try writePNG(makeBattleback2(), to: project.imageURL("battlebacks2", "Grassland"))
         try writePNG(makeBanner("Kampung Lakon"), to: project.imageURL("pictures", "Banner"))
+        try writeBattleArt(to: project)
     }
 }

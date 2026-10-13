@@ -184,6 +184,63 @@ Trait and effect codes are MZ's constants. Examples: `TRAIT_PARAM = 21`, `TRAIT_
 
 MZ's `AudioManager` plays Ogg files and reads the `LOOPSTART`/`LOOPLENGTH` Vorbis comments. A real MZ BGM decodes in Lakon with those tags (`Lakon --decode-audio`). Script (`command355`, :11250) is a plain `eval`, and Plugin Command (`command357`, :11273) calls `PluginManager.callCommand`. Lakon reproduces both on JavaScriptCore with an MZ-shaped API.
 
+## 13. Animations: two formats in one file
+
+`Spriteset_Base.isMVAnimation` is just `!!animation.frames` (rmmz_sprites.js:3287), so data/Animations.json can hold both
+MZ Effekseer entries and MV cell entries, and MZ 1.1 plays both (`Sprite_Animation`, :1197; `Sprite_AnimationMV`, :1469).
+
+- **MV cells.** Duration is `frames × 4 + 1` with a rate of 4 (`setupRate`/`setupDuration`, :1514-1520). The frame index is
+  `frames − ceil(duration / 4)` (:1672), and each cell is `[pattern, x, y, scale, rotation, mirror, opacity, blend]` cut from 192×192
+  cells, 5 per row, with pattern ≥ 100 using the second image (`updateCellSprite`, :1692). Timings flash the target, flash the
+  screen or hide the target for `flashDuration × 4` frames and play an SE (`processTimingData`, :1724). Position 0 head, 1 centre,
+  2 feet, 3 screen (`updatePosition`, :1638).
+- **MZ (Effekseer).** The sprite plays `soundTimings` and `flashTimings` per frame and stops once the last timing has passed, the
+  flash has ended and the effect handle no longer exists (`updateMain`/`checkEnd`, :1307-1339). It renders with an orthographic
+  projection, `y = −1`, `z = −(4096 / height)`, a camera at z = −10 and a 4096×4096 viewport centred on the target (`_render`,
+  `setProjectionMatrix`, `setCameraMatrix`, `setViewport`, :1361-1406). The target point is the sprite's centre, or its feet with `alignBottom` (:1425).
+- **Scheduling.** Per-target animations start 8 frames in, and each further target 12 frames later (`createAnimation`,
+  `animationBaseDelay`, `animationNextDelay`, :3253, :3311-3317). Animations on actors are mirrored (`animationShouldMirror`, :3319).
+  The battle waits for them, because `BattleManager.isBusy` (rmmz_managers.js:2391) includes `Spriteset_Battle.isBusy` → `isAnimationPlaying` (rmmz_sprites.js:3696).
+- **Which animation.** `Window_BattleLog.showAnimation` treats −1 as a normal attack: actors use their weapon's animation (or 1 for bare
+  hands, `Game_Actor.attackAnimationId1`/`bareHandsAnimationId`, rmmz_objects.js:4472-4488), and enemies only play the enemy-attack SE
+  (rmmz_windows.js:5534-5575). Show Animation (`command212`, rmmz_objects.js:10553) and Show Battle Animation (`command337`, :11187, whose
+  third parameter means the whole troop) go through the same request.
+
+## 14. Side-view battle
+
+- **Layout.** Actor homes are `(600 + index × 32, 280 + index × 48)` (`Sprite_Actor.setActorHome`, rmmz_sprites.js:739). They enter from
+  300 px to the right over 30 frames, step forward 48 px over 12 frames while inputting or acting, step back, and retreat 300 px on escape
+  (:735, :883-903). Enemies use img/sv_enemies in side view (`Sprite_Enemy.loadBitmap`, :981).
+- **Sheets.** An sv_actors sheet is 9 × 6 cells. Motion `m` is column `(m / 6) × 3 + pattern`, row `m % 6` (`updateFrame`, :808), and the 18 motions
+  are listed in `Sprite_Actor.MOTIONS` (:653). Patterns advance every 12 frames; looping motions cycle 0-1-2-1, the rest play once and
+  refresh (`updateMotionCount`, :840). Weapons are 96×64 cells, 12 per Weapons*N* sheet, drawn 16 px left of the actor (`Sprite_Weapon`, :2735-2805).
+  State overlays are 96×96 cells, 8 frames per row (`Sprite_StateOverlay`, :2663-2730).
+- **Which motion.** `refreshMotion` (:857) picks walk (inputting/acting/undecided), dead, sleep, chant (waiting with a magic skill), guard,
+  abnormal, dying (HP < ¼) or wait. Attacks use `System.attackMotions[weapon type]` → thrust/swing/missile plus a weapon image
+  (`Game_Actor.performAttack`, rmmz_objects.js:4636). Guard, magic skills (`System.magicSkills`), other skills and items use guard/spell/skill/item
+  (:4617). Damage and evasion request damage/evade (:4652-4670), and victory and escape request their motions (:4684-4695). A requested motion
+  clears a pending refresh (`setupMotion` → `clearMotion`), which is why the victory pose survives the "done" state set at the same time.
+- **Action states.** undecided at input start, inputting for the current actor, waiting after input, acting from `performActionStart`, and
+  done after the actor's last action (rmmz_managers.js:2564-2582, :2668; rmmz_objects.js:3954).
+- **Enemy effects.** whiten 16 frames on action start, blink 20 on damage, collapse 32 (additive, reddish), boss collapse over the bitmap's
+  height with Boss Collapse 2 every 20 frames, instant collapse 16, and appear/disappear (`Sprite_Enemy.startEffect`…`updateInstantCollapse`, :1038-1178).
+
+## 15. Parallax
+
+`Game_Map.setupParallax` copies `parallaxName`, `parallaxLoopX/Y` and `parallaxSx/Sy` from the map (rmmz_objects.js:6226). Loops advance
+by `sx / tileWidth / 2` tiles per frame (`updateParallax`, :6722). The origin is `parallaxX × 48` for a "!" name (`ImageManager.isZeroParallax`,
+rmmz_managers.js:970), `parallaxX × 48 / 2` when looping, and 0 otherwise (`parallaxOx`/`parallaxOy`, :6266-6284). `parallaxX` follows the map's
+display position plus the auto-scroll (`setDisplayPos`, `scrollDown`…`scrollUp`, :6247, :6486-6550). Change Parallax (`command284`, :10837) turns off a
+loop by resetting that axis (`changeParallax`, :6744). The image is a `TilingSprite` behind the tilemap (`Spriteset_Map.createParallax`,
+rmmz_sprites.js:3401).
+
+## 16. Browser deployment
+
+MZ's web runtime is PixiJS plus `effekseer.min.js`/`effekseer.wasm`, loaded by main.js (main.js:5-19, :136). Its `rmmz_*.js` files carry no licence
+header that would let another tool redistribute them, so Lakon's HTML export ships its own port of LakonCore instead (web/*.js). Effekseer for
+WebGL is MIT-licensed (the header of effekseer.min.js), and Lakon bundles the official 1.70e release from github.com/effekseer/EffekseerForWebGL,
+not MZ's copy. MZ games saved in browsers use localforage (`StorageManager.isLocalMode`, rmmz_managers.js:541); the web port uses localStorage.
+
 ---
 
 ## Validation against a real MZ project
@@ -199,3 +256,17 @@ Executed 13 tests, with 0 failures
 Lakon drew "Normal Town" correctly with the stock A1 water, A3 roofs, A4 walls, B–E objects and stored
 autotile shapes. That shows tile IDs, autotile tables and the sheet layout all match. The render isn't
 committed, because MZ's RTP art is licensed to MZ owners. You can reproduce it with the commands above.
+
+The same project, after this session's additions (paths from a local run):
+
+```
+$ Lakon --export-web /tmp/mzimport /tmp/mzweb          # release build: 54 s
+exported …/Project MZ-web (664 images, 449 ogg→m4a, 0 audio copied)
+$ grep -o '"loopStart"' …/data.js | wc -l             # BGM/BGS that kept their LOOPSTART/LOOPLENGTH
+77
+$ LAKON_MZ_FIXTURE=Project-MZ swift test               # includes Swift ⇄ JS parity on the MZ data (2,614 frames, identical)
+Executed 34 tests, with 0 failures
+```
+
+In headless Chrome the exported MZ project showed its RTP maps, sv_actors in side-view battle, and a real Effekseer
+effect (HitPhysical) on the target, with no page errors (`web/test/browser.js`). As before, those renders stay local.

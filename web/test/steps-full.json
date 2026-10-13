@@ -1,0 +1,219 @@
+[
+{
+"until": "window.lakonGame && lakonGame.mode === 'title'"
+},
+{
+"wait": 500
+},
+{
+"key": "Enter"
+},
+{
+"until": "lakonGame.world.message && lakonGame.world.message.isTextComplete"
+},
+{
+"key": "Enter"
+},
+{
+"until": "lakonGame.nameUI"
+},
+{
+"wait": 400
+},
+{
+"shot": "03-name"
+},
+{
+"eval": "lakonGame.nameUI.name = 'Bimo'; lakonGame.nameUI.cursor = 64; 'ok'"
+},
+{
+"key": "Enter"
+},
+{
+"until": "!lakonGame.nameUI && lakonGame.world.message && lakonGame.world.message.isTextComplete"
+},
+{
+"key": "Enter"
+},
+{
+"until": "!lakonGame.world.isEventRunning",
+"timeout": 8000
+},
+{
+"wait": 300
+},
+{
+"key": "x"
+},
+{
+"wait": 500
+},
+{
+"shot": "04-menu"
+},
+{
+"key": "x"
+},
+{
+"wait": 400
+},
+{
+"eval": "lakonGame.world.addActor(2); lakonGame.world.startBattle(2, true, true); 'battle'"
+},
+{
+"until": "lakonGame.world.battle && lakonGame.world.battle.phase === 'input' && !lakonGame.world.battle.isBusy"
+},
+{
+"wait": 600
+},
+{
+"shot": "05-battle-start"
+},
+{
+"key": "z"
+},
+{
+"wait": 250
+},
+{
+"key": "z"
+},
+{
+"wait": 250
+},
+{
+"shot": "06-target"
+},
+{
+"key": "z"
+},
+{
+"wait": 300
+},
+{
+"key": "ArrowDown"
+},
+{
+"wait": 200
+},
+{
+"key": "z"
+},
+{
+"wait": 300
+},
+{
+"shot": "07-skills"
+},
+{
+"key": "z"
+},
+{
+"wait": 300
+},
+{
+"key": "z"
+},
+{
+"until": "lakonGame.battleUI && lakonGame.battleUI.animations.some(a => a.started && a.cells.length)",
+"timeout": 8000
+},
+{
+"wait": 120
+},
+{
+"shot": "08-anim"
+},
+{
+"wait": 1200
+},
+{
+"wait": 150
+},
+{
+"shot": "09-action"
+},
+{
+"until": "!lakonGame.world.battle || (lakonGame.world.battle.phase === 'input' && !lakonGame.world.battle.isBusy)",
+"timeout": 20000
+},
+{
+"eval": "if (lakonGame.world.battle) for (const e of lakonGame.world.battle.enemies) e.setHp(0); 'killed'"
+},
+{
+"key": "z"
+},
+{
+"wait": 100
+},
+{
+"until": "!lakonGame.world.battle || lakonGame.world.battle.log.join(' ').includes('victorious')",
+"timeout": 15000
+},
+{
+"wait": 800
+},
+{
+"shot": "10-victory"
+},
+{
+"until": "!lakonGame.world.battle",
+"timeout": 20000
+},
+{
+"wait": 300
+},
+{
+"eval": "var w = lakonGame.world; delete w.screen.pictures[1]; var s = w.makeSave(); s.mapId = 4; s.playerX = 6; s.playerY = 6; s.playerDirection = 8; s.hasSavedParallax = false; w.load(s); w.screen.changeWeather('none', 0, 0); 'sky'"
+},
+{
+"wait": 1600
+},
+{
+"shot": "11-sky"
+},
+{
+"key": "z"
+},
+{
+"until": "lakonGame.mapAnims.some(m => m.pb.started && m.pb.cells.length)"
+},
+{
+"wait": 200
+},
+{
+"shot": "12-wind-anim"
+},
+{
+"until": "lakonGame.world.message && lakonGame.world.message.isTextComplete",
+"timeout": 8000
+},
+{
+"key": "z"
+},
+{
+"until": "!lakonGame.world.isEventRunning"
+},
+{
+"eval": "var w = lakonGame.world; w.player.locate(10, 6); w.player.direction = 8; 'moved'"
+},
+{
+"wait": 200
+},
+{
+"key": "z"
+},
+{
+"until": "lakonGame.world.state.parallax.name === '!Starlit' && lakonGame.world.message",
+"timeout": 8000
+},
+{
+"wait": 800
+},
+{
+"shot": "13-starlit"
+},
+{
+"eval": "lakonGame.world.state.parallax.name + ' | ' + lakonGame.world.script.log.join(' | ')"
+}
+]

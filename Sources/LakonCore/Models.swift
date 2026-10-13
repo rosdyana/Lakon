@@ -133,6 +133,13 @@ public struct GameMap: Codable, Hashable {
     public var battleback1Name = ""
     public var battleback2Name = ""
     public var disableDashing = false
+    /// Parallax background (img/parallaxes). A leading "!" makes it scroll with the tiles (ImageManager.isZeroParallax).
+    public var parallaxName = ""
+    public var parallaxLoopX = false
+    public var parallaxLoopY = false
+    public var parallaxSx = 0
+    public var parallaxSy = 0
+    public var parallaxShow = true
 
     public init(width: Int, height: Int, tilesetId: Int = 1, fill: Int = 0) {
         self.width = width; self.height = height; self.tilesetId = tilesetId
@@ -148,6 +155,8 @@ public struct GameMap: Codable, Hashable {
         encounterList = c.v(.encounterList, []); encounterStep = c.v(.encounterStep, 30)
         specifyBattleback = c.v(.specifyBattleback, false); battleback1Name = c.v(.battleback1Name, ""); battleback2Name = c.v(.battleback2Name, "")
         disableDashing = c.v(.disableDashing, false)
+        parallaxName = c.v(.parallaxName, ""); parallaxLoopX = c.v(.parallaxLoopX, false); parallaxLoopY = c.v(.parallaxLoopY, false)
+        parallaxSx = c.v(.parallaxSx, 0); parallaxSy = c.v(.parallaxSy, 0); parallaxShow = c.v(.parallaxShow, true)
         let need = width * height * Self.layerCount
         if data.count < need { data += Array(repeating: 0, count: need - data.count) }
         if events.isEmpty { events = [nil] }
@@ -254,6 +263,12 @@ public struct SystemData: Codable, Hashable {
     public var optFloorDeath = false
     public var optExtraExp = false
     public var title1Name = ""
+    /// Side-view battle (MZ System "optSideView"): actors appear as sv_actors sprites on the right.
+    public var optSideView = false
+    /// Indexed by weapon type (0 = bare hands): motion 0 thrust, 1 swing, 2 missile, plus the Weapons1-3 image id.
+    public var attackMotions: [AttackMotion] = AttackMotion.defaults
+    /// Skill types that count as magic (spell motion, "chant" pose while waiting).
+    public var magicSkills: [Int] = [1]
     public init() {}
     public init(from d: Decoder) throws {
         let c = try d.container(keyedBy: CodingKeys.self)
@@ -274,6 +289,8 @@ public struct SystemData: Codable, Hashable {
         battleback1Name = c.v(.battleback1Name, ""); battleback2Name = c.v(.battleback2Name, "")
         optDisplayTp = c.v(.optDisplayTp, true); optSlipDeath = c.v(.optSlipDeath, false)
         optFloorDeath = c.v(.optFloorDeath, false); optExtraExp = c.v(.optExtraExp, false); title1Name = c.v(.title1Name, "")
+        optSideView = c.v(.optSideView, false); attackMotions = c.v(.attackMotions, AttackMotion.defaults)
+        magicSkills = c.v(.magicSkills, [1])
     }
 }
 
@@ -305,6 +322,20 @@ public struct Actor: Codable, Hashable, Identifiable {
         faceName = c.v(.faceName, ""); faceIndex = c.v(.faceIndex, 0); battlerName = c.v(.battlerName, "")
         equips = c.v(.equips, [0, 0, 0, 0, 0]); traits = c.v(.traits, []); note = c.v(.note, "")
     }
+}
+
+/// One entry of System.attackMotions (rmmz_objects.js Game_Actor.performAttack).
+public struct AttackMotion: Codable, Hashable {
+    public var type = 0
+    public var weaponImageId = 0
+    public init(type: Int, weaponImageId: Int) { self.type = type; self.weaponImageId = weaponImageId }
+    public init(from d: Decoder) throws {
+        let c = try d.container(keyedBy: CodingKeys.self)
+        type = c.v(.type, 0); weaponImageId = c.v(.weaponImageId, 0)
+    }
+    /// MZ's defaults for: none, dagger, sword, flail, axe, whip, staff, bow, crossbow, gun, claw, glove, spear.
+    public static let defaults: [AttackMotion] = [(0, 0), (0, 1), (1, 2), (1, 3), (1, 4), (1, 5), (1, 6), (2, 7), (2, 8), (2, 9), (0, 10), (0, 11), (0, 12)]
+        .map { AttackMotion(type: $0.0, weaponImageId: $0.1) }
 }
 
 /// itypeId: 1 regular, 2 key item, 3 hidden A, 4 hidden B.

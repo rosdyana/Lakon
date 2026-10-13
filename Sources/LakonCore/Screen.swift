@@ -64,6 +64,48 @@ public struct GameScreen: Codable {
     public mutating func clearForBattleEnd() { flashColor = [0, 0, 0, 0]; flashDuration = 0; shake = 0; shakeDuration = 0 }
 }
 
+/// Port of Game_Map's parallax fields. `autoX/autoY` hold the auto-scroll accumulated by `update` in tiles;
+/// the renderer adds the camera position the way Game_Map.parallaxOx/Oy do (MZ keeps both in `_parallaxX`).
+public struct ParallaxState: Codable, Hashable {
+    public var name = ""
+    public var loopX = false
+    public var loopY = false
+    public var sx = 0
+    public var sy = 0
+    public var autoX = 0.0
+    public var autoY = 0.0
+    public init() {}
+    public init(map: GameMap) {
+        name = map.parallaxName; loopX = map.parallaxLoopX; loopY = map.parallaxLoopY; sx = map.parallaxSx; sy = map.parallaxSy
+    }
+    public init(from d: Decoder) throws {
+        let c = try d.container(keyedBy: CodingKeys.self)
+        name = c.v(.name, ""); loopX = c.v(.loopX, false); loopY = c.v(.loopY, false); sx = c.v(.sx, 0); sy = c.v(.sy, 0)
+        autoX = c.v(.autoX, 0); autoY = c.v(.autoY, 0)
+    }
+    /// "!" prefix: the image scrolls 1:1 with the map (ImageManager.isZeroParallax).
+    public var isZero: Bool { name.hasPrefix("!") }
+
+    /// Game_Map.updateParallax: loops advance by sx / tileWidth / 2 tiles per frame.
+    public mutating func update() {
+        if loopX { autoX += Double(sx) / 48 / 2 }
+        if loopY { autoY += Double(sy) / 48 / 2 }
+    }
+    /// Game_Map.changeParallax: turning a loop off resets that axis.
+    public mutating func change(name n: String, loopX lx: Bool, loopY ly: Bool, sx x: Int, sy y: Int) {
+        if loopX && !lx { autoX = 0 }
+        if loopY && !ly { autoY = 0 }
+        name = n; loopX = lx; loopY = ly; sx = x; sy = y
+    }
+    /// Pixel origin of the tiling image for a camera at `displayX/Y` tiles (Game_Map.parallaxOx/Oy).
+    public func origin(displayX: Double, displayY: Double) -> (Double, Double) {
+        let px = displayX + autoX, py = displayY + autoY
+        let ox = isZero ? px * 48 : loopX ? px * 48 / 2 : 0
+        let oy = isZero ? py * 48 : loopY ? py * 48 / 2 : 0
+        return (ox, oy)
+    }
+}
+
 /// origin: 0 upper-left, 1 center. blendMode: 0 normal, 1 additive, 2 multiply, 3 screen.
 /// easingType: 0 constant, 1 slow start, 2 slow end, 3 slow start and end.
 public struct GamePicture: Codable {

@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>Lakon Game</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
+  body { display: flex; align-items: center; justify-content: center; }
+  canvas { display: block; outline: none; image-rendering: auto; }
+  #start { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; color: #fff; cursor: pointer;
+           font: 600 22px "Avenir Next", "Segoe UI", Arial, sans-serif; background: rgba(0, 0, 0, 0.55); letter-spacing: 0.02em; }
+</style>
+</head>
+<body>
+<canvas id="game" width="816" height="624" tabindex="0"></canvas>
+<div id="start">▶ Click or press any key to start</div>
+<script src="data.js"></script>
+<!--EFFEKSEER-->
+<script src="lakon.js"></script>
+</body>
+</html>

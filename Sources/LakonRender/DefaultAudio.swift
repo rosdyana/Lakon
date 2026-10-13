@@ -126,6 +126,15 @@ public enum DefaultAudio {
         case "Open", "Chest": let b = Buffer(seconds: 0.5); b.note(0, 0.3, 120, Voice(wave: .saw, attack: 0.02, volume: 0.3), slideTo: 220, vibrato: 0.2); b.note(0.3, 0.1, hz(84), tri); return b
         case "Door": let b = Buffer(seconds: 0.4); b.note(0, 0.04, 180, Voice(wave: .triangle, volume: 0.6)); b.note(0.15, 0.04, 170, Voice(wave: .triangle, volume: 0.6)); return b
         case "Jump": let b = Buffer(seconds: 0.25); b.note(0, 0.15, 300, sq, slideTo: 900); return b
+        case "Blow": let b = Buffer(seconds: 0.25); b.note(0, 0.06, 2600, nz); b.note(0, 0.1, 180, tri, slideTo: 60); return b
+        case "Thunder":
+            let b = Buffer(seconds: 0.9); b.note(0, 0.08, 5000, Voice(wave: .noise, attack: 0.001, decay: 0.05, sustain: 0.6, release: 0.05, volume: 0.5))
+            b.note(0.08, 0.6, 900, Voice(wave: .noise, attack: 0.01, decay: 0.4, sustain: 0.3, release: 0.2, volume: 0.4), slideTo: 120); b.lowpass(0.4); return b
+        case "Ice":
+            let b = Buffer(seconds: 0.7); for (i, m) in [96.0, 91, 98, 93, 100].enumerated() { b.note(Double(i) * 0.05, 0.12, hz(m), Voice(wave: .triangle, decay: 0.05, sustain: 0.3, release: 0.2, volume: 0.3)) }
+            b.note(0, 0.3, 7000, Voice(wave: .noise, attack: 0.01, decay: 0.2, sustain: 0.1, volume: 0.15)); return b
+        case "Wind": let b = Buffer(seconds: 1.0); b.note(0, 0.8, 300, Voice(wave: .noise, attack: 0.3, decay: 0.3, sustain: 0.5, release: 0.3, volume: 0.35), slideTo: 900); b.lowpass(0.08); return b
+        case "Darkness": let b = Buffer(seconds: 0.8); b.note(0, 0.6, 220, Voice(wave: .saw, attack: 0.1, volume: 0.25), slideTo: 110, vibrato: 0.1); b.lowpass(0.2); return b
         default: let b = Buffer(seconds: 0.1); b.note(0, 0.05, 1000, sq); return b
         }
     }
@@ -134,7 +143,7 @@ public enum DefaultAudio {
     public static let systemSoundNames = ["Cursor", "Decision", "Cancel", "Buzzer", "Equip", "Save", "Load", "Battle_Start", "Escape",
                                           "Enemy_Attack", "Enemy_Damage", "Enemy_Collapse", "Boss_Collapse", "Boss_Collapse", "Actor_Damage",
                                           "Actor_Collapse", "Recovery", "Miss", "Evasion", "Magic_Evasion", "Reflection", "Shop", "Item", "Skill"]
-    static let extraSE = ["Slash", "Fire", "Chest", "Door", "Jump", "Coin"]
+    static let extraSE = ["Slash", "Fire", "Chest", "Door", "Jump", "Coin", "Blow", "Thunder", "Ice", "Wind", "Darkness"]
 
     // MARK: music
 

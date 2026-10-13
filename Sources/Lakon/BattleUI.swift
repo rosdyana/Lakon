@@ -1,5 +1,6 @@
 import AppKit
 import LakonCore
+import LakonRender
 import SpriteKit
 
 /// Scene_Battle (front view): battlebacks, enemy sprites, battle log, party/actor command windows,
@@ -19,11 +20,12 @@ final class BattleController {
     var cursors: [String: Int] = [:]
     var lastCue = 0
     var popups: [(text: String, color: NSColor, x: CGFloat, y: CGFloat, age: Int, id: Int)] = []
-    var collapse: [Int: Int] = [:]
-    var flash: [Int: Int] = [:]
     var actorFlash: [Int: Int] = [:]
-    var bursts: [(x: CGFloat, y: CGFloat, age: Int, id: Int)] = []
     var shake = 0
+    var svActors: [SVActorSprite] = (0..<4).map { SVActorSprite(index: $0) }
+    var enemyFx: [Int: EnemySpriteEffect] = [:]
+    var animations: [AnimationPlayback] = []
+    var selectionCount = 0
     var lastInputActor: Int?
 
     init(scene: GameScene) { self.scene = scene }
@@ -132,6 +134,25 @@ final class BattleController {
 
     // MARK: render
 
+    var sideView: Bool { scene.project.system.optSideView }
+
+    /// Feet position (SpriteKit coordinates) and height of a cue target: enemy index ≥ 0, actor −(index + 1).
+    func targetFrame(_ t: Int, _ b: BattleManager) -> (x: CGFloat, y: CGFloat, h: CGFloat)? {
+        let H = GameScene.H
+        if t >= 0 {
+            guard let e = b.enemies.first(where: { $0.index == t }) else { return nil }
+            let h = enemyTexture(e)?.size().height ?? 100
+            return (CGFloat(e.screenX), H - CGFloat(e.screenY), h)
+        }
+        let ai = -t - 1
+        if sideView, ai < svActors.count { return (CGFloat(svActors[ai].x), H - CGFloat(svActors[ai].y), 64) }
+        return (300, 142 - CGFloat(ai) * 40 + 4, 40)     // front view: the actor's status row
+    }
+
+    func enemyTexture(_ e: GameEnemy) -> SKTexture? {
+        (sideView ? scene.texture("sv_enemies", e.battlerName) : nil) ?? scene.texture("enemies", e.battlerName)
+    }
+
     func render() {
         guard let b = battle else { return }
         let W = GameScene.W, H = GameScene.H
@@ -146,34 +167,57 @@ final class BattleController {
         ui.sprite("b.bb1", bb1, center: CGPoint(x: W / 2 + sx, y: H / 2), size: CGSize(width: 1000, height: 740), z: -19)
         ui.sprite("b.bb2", bb2, center: CGPoint(x: W / 2 + sx, y: H / 2), size: CGSize(width: 1000, height: 740), z: -18)
 
-        // Enemies
+        // Animations first: their target flashes and "hide target" apply to the battler sprites drawn below.
+        var targetFlash: [Int: [Double]] = [:], hidden = Set<Int>()
+        for a in animations {
+            for se in a.update() { scene.audio.handle([.playSe(se)]) }
+            for t in a.targets {
+                if a.flashColor[3] > 0 { targetFlash[t] = a.flashColor }
+                if a.hidingTargets { hidden.insert(t) }
+            }
+        }
+        animations.removeAll { !$0.isPlaying }
+        selectionCount += 1
+
+        // Enemies (Sprite_Enemy): appear / whiten / blink / collapse effects.
         let targeting: Int? = { if case .enemyTarget = sub, b.phase == .input, !b.isBusy { return cur("enemy") }; return nil }()
         for e in b.enemies {
             let i = e.index
-            if let c = collapse[i] { collapse[i] = c + 1 }
-            if e.hidden { continue }
-            let collapsed = (collapse[i] ?? 0) >= 32 || (e.isDead && collapse[i] == nil && !b.isBusy)
-            if collapsed { continue }
-            guard let tex = scene.texture("enemies", e.battlerName) else {
-                ui.label("b.en\(i)", e.name, CGPoint(x: CGFloat(e.screenX) + sx, y: H - CGFloat(e.screenY) + 40), size: 24, align: .center, z: 2)
+            guard let tex = enemyTexture(e) else {
+                if e.isAlive { ui.label("b.en\(i)", e.name, CGPoint(x: CGFloat(e.screenX) + sx, y: H - CGFloat(e.screenY) + 40), size: 24, align: .center, z: 2) }
                 continue
             }
-            var alpha: CGFloat = 1
-            if let c = collapse[i] { alpha = 1 - CGFloat(c) / 32 }
-            let blink = (flash[i] ?? 0) > 0 && (flash[i]! / 2) % 2 == 0
-            if let f = flash[i] { flash[i] = f > 0 ? f - 1 : nil }
-            let selected = targeting == i
-            let pulse: CGFloat = selected ? 0.75 + 0.25 * CGFloat(sin(Double(ui.frame) / 4)) : 1
-            ui.sprite("b.e\(i)", tex, center: CGPoint(x: CGFloat(e.screenX) + sx, y: H - CGFloat(e.screenY)), z: 1, alpha: alpha * (blink ? 0.4 : 1) * pulse, anchor: CGPoint(x: 0.5, y: 0))
-            if collapse[i] != nil {
-                ui.rect("b.ec\(i)", CGRect(x: CGFloat(e.screenX) - tex.size().width / 2 + sx, y: H - CGFloat(e.screenY), width: tex.size().width, height: tex.size().height),
-                        color: NSColor(red: 1, green: 0.2, blue: 0.3, alpha: alpha * 0.35), z: 1.5)
+            let fx = enemyFx[i] ?? { let f = EnemySpriteEffect(alive: e.isAlive, bitmapHeight: Int(tex.size().height)); enemyFx[i] = f; return f }()
+            if e.isDead && fx.appeared && !fx.isEffecting {      // killed without a collapse cue (e.g. Change Enemy HP)
+                fx.start(["collapse", "bossCollapse", "instantCollapse"][safe: e.collapseType] ?? "collapse")
             }
-            if selected {
+            fx.update(alive: e.isAlive, hidden: e.hidden)
+            if fx.wantsBossSound { world.playSystemSound(13) }
+            if fx.opacity <= 0 || hidden.contains(i) { continue }
+            var drawTex = tex, size = tex.size()
+            if fx.bossCollapseHeight >= 0 {
+                let h = CGFloat(max(1, fx.bossCollapseHeight))
+                drawTex = SKTexture(rect: CGRect(x: 0, y: 1 - h / size.height, width: 1, height: h / size.height), in: tex)
+                size.height = h
+            }
+            let p = CGPoint(x: CGFloat(e.screenX) + sx + CGFloat(fx.shake), y: H - CGFloat(e.screenY))
+            let anchor = CGPoint(x: 0.5, y: 0)
+            ui.sprite("b.e\(i)", drawTex, center: p, size: size, z: 1 + CGFloat(e.screenY) / 1000, alpha: CGFloat(fx.opacity / 255), anchor: anchor,
+                      blend: fx.additive ? .add : .alpha)
+            var flashRGBA = fx.blendColor
+            if let f = targetFlash[i], f[3] > flashRGBA[3] { flashRGBA = f }
+            if targeting == i && selectionCount % 30 < 15 { flashRGBA = [255, 255, 255, max(64, flashRGBA[3])] }
+            ui.flashSprite("b.ef\(i)", drawTex, center: p, size: size, z: 1.01 + CGFloat(e.screenY) / 1000, anchor: anchor, rgba: flashRGBA)
+            if targeting == i {
                 ui.label("b.tn", e.name, CGPoint(x: CGFloat(e.screenX), y: H - CGFloat(e.screenY) + tex.size().height + 10), size: 22, align: .center, bold: true, z: 30)
-                ui.label("b.ta", "▼", CGPoint(x: CGFloat(e.screenX), y: H - CGFloat(e.screenY) + tex.size().height - 14), size: 20, color: SceneUI.textColors[17], align: .center, z: 30)
             }
         }
+
+        // Side-view actors (Sprite_Actor): shadow, body, weapon, state overlay.
+        if sideView { drawActors(b, targetFlash: targetFlash, hidden: hidden, sx: sx) }
+
+        // Animation cells.
+        drawAnimations(b)
 
         // Battle log (Window_BattleLog): dark band at the top.
         if !b.log.isEmpty {
@@ -190,31 +234,121 @@ final class BattleController {
         drawPopups()
     }
 
-    func consumeCues(_ b: BattleManager) {
-        let W = GameScene.W, H = GameScene.H
-        for c in b.cues where c.id > lastCue {
-            lastCue = c.id
-            var x = W / 2, y = H / 2
-            if let t = c.target {
-                if t >= 0, let e = b.enemies.first(where: { $0.index == t }) {
-                    let h = scene.texture("enemies", e.battlerName)?.size().height ?? 100
-                    x = CGFloat(e.screenX); y = H - CGFloat(e.screenY) + h * 0.6
-                } else if t < 0 {
-                    let ai = -t - 1
-                    x = 300; y = 142 - CGFloat(ai) * 40 + 30
+    func drawActors(_ b: BattleManager, targetFlash: [Int: [Double]], hidden: Set<Int>, sx: CGFloat) {
+        let H = GameScene.H
+        let members = b.members
+        let ended = b.phase == .ending || b.phase == .done
+        for (i, s) in svActors.enumerated() {
+            s.setActor(i < members.count ? members[i] : nil)
+            guard i < members.count else { continue }
+            let a = members[i]
+            s.update(escaped: b.escaped, battleEnded: ended)
+            let t = -(i + 1)
+            let feet = CGPoint(x: CGFloat(s.x) + sx, y: H - CGFloat(s.y))
+            let z = 2 + CGFloat(s.y) / 1000
+            if let sh = scene.texture("system", "Shadow2") { ui.sprite("b.ash\(i)", sh, center: CGPoint(x: feet.x, y: feet.y + 2), z: z - 0.01) }
+            if hidden.contains(t) { continue }
+            if let sheet = scene.sheet("sv_actors", a.battlerName) {
+                let cw = sheet.width / 9, ch = sheet.height / 6, f = s.frame
+                let tex = scene.subTexture("sv_actors", a.battlerName, CGRect(x: f.col * cw, y: f.row * ch, width: cw, height: ch))
+                ui.sprite("b.a\(i)", tex, center: feet, size: CGSize(width: cw, height: ch), z: z, anchor: CGPoint(x: 0.5, y: 0))
+                var flash = targetFlash[t] ?? [0, 0, 0, 0]
+                if b.inputIndex == i && b.phase == .input, case .actorTarget = sub, cur("ally") == i, selectionCount % 30 < 15 { flash = [255, 255, 255, 64] }
+                ui.flashSprite("b.af\(i)", tex, center: feet, size: CGSize(width: cw, height: ch), z: z + 0.001, anchor: CGPoint(x: 0.5, y: 0), rgba: flash)
+            }
+            if s.weaponImageId > 0 {
+                let page = (s.weaponImageId - 1) / 12 + 1, idx = (s.weaponImageId - 1) % 12
+                let col = (idx / 6) * 3 + s.weaponPattern, row = idx % 6
+                if scene.sheet("system", "Weapons\(page)") != nil {
+                    let tex = scene.subTexture("system", "Weapons\(page)", CGRect(x: col * 96, y: row * 64, width: 96, height: 64))
+                    ui.sprite("b.aw\(i)", tex, center: CGPoint(x: feet.x - 16, y: feet.y), size: CGSize(width: 96, height: 64), z: z - 0.005, anchor: CGPoint(x: 0.5, y: 0))
                 }
             }
+            let overlay = a.stateOverlayIndex
+            if overlay > 0, scene.sheet("system", "States") != nil {
+                let pattern = (selectionCount / 8) % 8
+                let tex = scene.subTexture("system", "States", CGRect(x: pattern * 96, y: (overlay - 1) * 96, width: 96, height: 96))
+                ui.sprite("b.ao\(i)", tex, center: feet, size: CGSize(width: 96, height: 96), z: z + 0.002, anchor: CGPoint(x: 0.5, y: 0))
+            }
+        }
+    }
+
+    func drawAnimations(_ b: BattleManager) {
+        let W = GameScene.W, H = GameScene.H
+        for (n, a) in animations.enumerated() where a.started {
+            let d = a.animation
+            // Origin in SpriteKit coordinates (Sprite_AnimationMV.updatePosition / Sprite_Animation.targetPosition).
+            var ox = W / 2, oy = H / 2
+            let frames = a.targets.compactMap { targetFrame($0, b) }
+            if !d.isScreen, !frames.isEmpty {
+                ox = frames.map(\.x).reduce(0, +) / CGFloat(frames.count)
+                let ys = frames.map { f -> CGFloat in
+                    if d.isMV { return d.position == 0 ? f.y + f.h : d.position == 1 ? f.y + f.h / 2 : f.y }
+                    return d.alignBottom ? f.y : f.y + f.h / 2
+                }
+                oy = ys.reduce(0, +) / CGFloat(ys.count)
+            }
+            if !d.isMV { ox += CGFloat(d.offsetX); oy -= CGFloat(d.offsetY) }
+            for (k, c) in a.cells.enumerated() {
+                guard let tex = cellTexture(d, c) else { continue }
+                ui.sprite("b.an\(n).\(k)", tex, center: CGPoint(x: ox + CGFloat(c.x), y: oy - CGFloat(c.y)), size: CGSize(width: 192, height: 192), z: 5,
+                          alpha: CGFloat(c.opacity / 255), rotation: -CGFloat(c.rotation), xScale: CGFloat(c.scaleX), yScale: CGFloat(c.scaleY),
+                          blend: [.alpha, .add, .multiply, .screen][max(0, min(3, c.blend))])
+            }
+            if let t = a.standInProgress { drawStandIn("b.si\(n)", d, t, CGPoint(x: ox, y: oy), z: 5) }
+            if a.screenFlashColor[3] > 0.5 {
+                let f = a.screenFlashColor
+                ui.rect("b.sf\(n)", CGRect(x: 0, y: 0, width: W, height: H), color: NSColor(red: f[0] / 255, green: f[1] / 255, blue: f[2] / 255, alpha: f[3] / 255), z: 6)
+            }
+        }
+    }
+
+    /// Effekseer stand-in: a coloured glow and an expanding ring tinted by the animation's flash colour.
+    func drawStandIn(_ key: String, _ d: AnimationData, _ t: Double, _ p: CGPoint, z: CGFloat) {
+        let col = AnimationArt.standInColor(d)
+        let s = CGFloat(d.scale) / 100
+        ui.sprite(key + ".g", AnimationArt.glow, center: p, size: CGSize(width: 220 * s, height: 220 * s), z: z, alpha: CGFloat(sin(t * .pi)), blend: .add)
+        ui.flashSprite(key + ".gc", AnimationArt.glow, center: p, size: CGSize(width: 220 * s, height: 220 * s), z: z + 0.01, anchor: CGPoint(x: 0.5, y: 0.5),
+                       rgba: [col.0, col.1, col.2, 200 * (1 - t)], blend: .add)
+        let r = (40 + 160 * CGFloat(t)) * s
+        ui.flashSprite(key + ".r", AnimationArt.ring, center: p, size: CGSize(width: r, height: r), z: z + 0.02, anchor: CGPoint(x: 0.5, y: 0.5),
+                       rgba: [col.0, col.1, col.2, 255 * (1 - t)], blend: .add)
+    }
+
+    func cellTexture(_ d: AnimationData, _ c: AnimationPlayback.Cell) -> SKTexture? {
+        let name = c.sheet == 1 ? d.animation1Name : d.animation2Name
+        guard !name.isEmpty, scene.sheet("animations", name) != nil else { return nil }
+        return scene.subTexture("animations", name, CGRect(x: (c.pattern % 5) * 192, y: (c.pattern / 5) * 192, width: 192, height: 192))
+    }
+
+    func consumeCues(_ b: BattleManager) {
+        let H = GameScene.H
+        for c in b.cues where c.id > lastCue {
+            lastCue = c.id
+            var x = GameScene.W / 2, y = H / 2
+            if let t = c.target, let f = targetFrame(t, b) {
+                x = f.x + (t < 0 && sideView ? -32 : 0)
+                y = t >= 0 ? f.y + f.h * 0.6 : f.y + (sideView ? 40 : 26)
+            }
             switch c.kind {
-            case .damage(let v): popups.append(("\(v)", .white, x, y, 0, c.id)); if let t = c.target, t >= 0 { flash[t] = 12 }
+            case .damage(let v): popups.append(("\(v)", .white, x, y, 0, c.id))
             case .recover(let v): popups.append(("\(v)", SceneUI.textColors[24], x, y, 0, c.id))
             case .mpDamage(let v): popups.append(("\(abs(v))", v > 0 ? SceneUI.textColors[23] : SceneUI.textColors[4], x, y, 0, c.id))
             case .miss: popups.append(("Miss", SceneUI.textColors[8], x, y, 0, c.id))
             case .critical: popups.append(("Critical!", SceneUI.textColors[18], x, y + 26, 0, c.id))
-            case .collapse: if let t = c.target, t >= 0 { collapse[t] = 0 }
-            case .flash: if let t = c.target, t >= 0 { flash[t] = 16 }
+            case .collapse:
+                if let t = c.target, t >= 0, let e = b.enemies.first(where: { $0.index == t }) {
+                    let type = ["collapse", "bossCollapse", "instantCollapse"][safe: e.collapseType]
+                    if let type, enemyFx[t]?.appeared == true { enemyFx[t]?.start(type) }
+                }
+            case .flash: if let t = c.target, t >= 0 { enemyFx[t]?.start("whiten") }
+            case .effect(let type): if let t = c.target, t >= 0 { enemyFx[t]?.start(type) }
             case .shake: shake = 18
-            case .actorAct: if let t = c.target { actorFlash[t] = 14 }
-            case .animation: bursts.append((x, y, 0, c.id))
+            case .actorAct: if !sideView, let t = c.target { actorFlash[t] = 14 }
+            case .motion(let m): if let t = c.target, t < 0, -t - 1 < svActors.count { svActors[-t - 1].requestMotion(m) }
+            case .weapon(let w): if let t = c.target, t < 0, -t - 1 < svActors.count { svActors[-t - 1].startWeapon(w) }
+            case .animation(let id, let mirror, let delay):
+                if let a = scene.project.animation(id) { animations.append(AnimationPlayback(a, targets: c.targets, mirror: mirror, delay: delay)) }
             }
         }
     }
@@ -228,15 +362,6 @@ final class BattleController {
             ui.label("b.pop\(p.id)", p.text, CGPoint(x: p.x, y: p.y + rise), size: 34, color: p.color, align: .center, bold: true, z: 40,
                      alpha: p.age > 50 ? CGFloat(70 - p.age) / 20 : 1)
             return p
-        }
-        bursts = bursts.compactMap { b in
-            var b = b
-            b.age += 1
-            guard b.age < 30 else { return nil }
-            let r = 10 + CGFloat(b.age) * 3
-            ui.rect("b.burst\(b.id)", CGRect(x: b.x - r, y: b.y - r, width: r * 2, height: r * 2),
-                    color: NSColor(red: 1, green: 0.9, blue: 0.6, alpha: 0.5 * (1 - CGFloat(b.age) / 30)), z: 35, corner: r)
-            return b
         }
     }
 
@@ -252,7 +377,7 @@ final class BattleController {
             if targetingAlly == i { ui.cursor("b.allyc", CGRect(x: r.minX + 6, y: y - 10, width: r.width - 12, height: 38), z: 21) }
             if let f = actorFlash[i] {
                 actorFlash[i] = f > 0 ? f - 1 : nil
-                ui.rect("b.af\(i)", CGRect(x: r.minX + 6, y: y - 10, width: r.width - 12, height: 38), color: NSColor(white: 1, alpha: CGFloat(f) / 28), z: 21, corner: 6)
+                ui.rect("b.afl\(i)", CGRect(x: r.minX + 6, y: y - 10, width: r.width - 12, height: 38), color: NSColor(white: 1, alpha: CGFloat(f) / 28), z: 21, corner: 6)
             }
             ui.label("b.sn\(i)", a.name, CGPoint(x: r.minX + 18, y: y), size: 21, color: a.isDead ? SceneUI.textColors[18] : (a.hpRate < 0.25 ? SceneUI.textColors[17] : .white), z: 22, maxWidth: 110)
             for (j, s) in a.sortedStates.filter({ $0.iconIndex > 0 }).prefix(2).enumerated() { ui.icon("b.ss\(i).\(j)", s.iconIndex, CGPoint(x: r.minX + 128 + CGFloat(j) * 26, y: y - 6), size: 24, z: 22) }
@@ -296,6 +421,27 @@ final class BattleController {
         let W = GameScene.W
         ui.window("b.help", CGRect(x: 8, y: 404, width: W - 16, height: 64), z: 20)
         ui.richText("b.helpt", t, CGPoint(x: 28, y: 428), size: 20, z: 22)
+    }
+}
+
+/// Shared textures for animation stand-ins (soft glow, ring) and their colours.
+enum AnimationArt {
+    static let glow: SKTexture = {
+        let ctx = makeCanvas(128, 128)
+        let g = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: [CGColor(gray: 1, alpha: 1), CGColor(gray: 1, alpha: 0)] as CFArray, locations: [0, 1])!
+        ctx.drawRadialGradient(g, startCenter: CGPoint(x: 64, y: 64), startRadius: 0, endCenter: CGPoint(x: 64, y: 64), endRadius: 64, options: [])
+        return SKTexture(cgImage: ctx.makeImage()!)
+    }()
+    static let ring: SKTexture = {
+        let ctx = makeCanvas(128, 128)
+        ctx.setStrokeColor(CGColor(gray: 1, alpha: 1)); ctx.setLineWidth(6); ctx.strokeEllipse(in: CGRect(x: 6, y: 6, width: 116, height: 116))
+        return SKTexture(cgImage: ctx.makeImage()!)
+    }()
+    /// The first flash colour, else a colour derived from the effect name.
+    static func standInColor(_ d: AnimationData) -> (Double, Double, Double) {
+        if let f = d.flashTimings.first, f.color.count >= 3, f.color[0] + f.color[1] + f.color[2] > 0 { return (Double(f.color[0]), Double(f.color[1]), Double(f.color[2])) }
+        let h = d.effectName.unicodeScalars.reduce(UInt32(7)) { $0 &* 31 &+ $1.value }
+        return (Double(140 + h % 116), Double(140 + (h / 7) % 116), Double(140 + (h / 49) % 116))
     }
 }
 

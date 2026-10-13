@@ -12,7 +12,9 @@ SwiftUI with AppKit for the editor, and SpriteKit for the player. It needs macOS
 | `Game_*` objects (rmmz_objects.js) | `LakonCore`: `GameWorld`, `GameCharacter/GamePlayer/GameEvent`, `Interpreter`, `GameState` |
 | `Tilemap` (rmmz_core.js) | `LakonRender.TileRenderer`, which uses the same tile-ID maths and autotile tables |
 | Pixi + NW.js player | SpriteKit `GameScene` at 816×624 with a fixed 60 Hz step |
-| Deployment (web/desktop) | **Export as Mac App**: copies Lakon's own binary into `<Title>.app`, adds the project under `Resources/Game`, and ad-hoc signs it |
+| Deployment (desktop) | **Export as Mac App**: copies Lakon's own binary into `<Title>.app`, adds the project under `Resources/Game`, and ad-hoc signs it |
+| Deployment (web) | **Export for Web (itch.io)**: `web/*.js`, a JavaScript port of LakonCore and the player, plus the project's data, images and audio, as a folder and a zip with `index.html` at its root |
+| `Sprite_Actor`, `Sprite_AnimationMV`, `Sprite_Animation`, `Sprite_Enemy` | `LakonCore/BattleSprites.swift` (`SVActorSprite`, `AnimationPlayback`, `EnemySpriteEffect`): their per-frame logic without drawing, shared by both players |
 | RTP graphics | Procedural art in MZ's sheet layouts (`DefaultArt.swift`). MZ-format PNGs from users or imports work unchanged |
 
 ## Decisions
@@ -33,6 +35,22 @@ SwiftUI with AppKit for the editor, and SpriteKit for the player. It needs macOS
 - **Pressing OK to close a message is consumed.** MZ keeps the message "busy" while it closes. Lakon marks the frame's
   input as used, so the same keypress can't re-trigger the event you just finished talking to (a test covers this).
 - **New events are drafts.** An event is added to the map only when you press OK in the event editor, as in MZ.
+- **The web export ports Lakon, not MZ.** MZ's `rmmz_*.js` has no licence that lets another tool redistribute it, so
+  `web/` re-implements LakonCore in plain JavaScript (no build step, no dependencies) with a Canvas 2D renderer and WebAudio.
+  Keeping two copies of the rules in step is the cost. `Simulation.swift` and `web/sim.js` replay the same scripted input
+  and print one snapshot line per frame, and `WebParityTests` requires them to match exactly. They do over 5,715 frames of
+  the demo (dialogue, a random encounter, rewards) and 2,614 frames of a real MZ project. Battlers now draw from the world's seeded random source, which is what makes those replays exact.
+- **Animations use the battle's clock, not the renderer's.** The core knows each animation's length (`AnimationData.playFrames`:
+  MV `frames × 4 + 1`, MZ the last timing or the 40-frame stand-in) and keeps the battle busy until then, the way MZ waits on
+  `isAnimationPlaying`. Headless tests and both players therefore show results at the same frame.
+- **Real Effekseer only in the browser.** The Mac player draws a coloured glow-and-ring stand-in for Effekseer entries and still
+  honours their flash and sound timings. The web export bundles Effekseer for WebGL 1.70e (MIT) when the project has
+  `effects/`, renders each handle with MZ's matrices on an offscreen WebGL canvas and composites it into the 2D canvas.
+  Embedding Effekseer's C++ runtime in the Mac player was left out (a large dependency for imported projects only).
+- **Ogg becomes AAC on export.** Not every browser decodes Vorbis, so the exporter decodes with stb_vorbis and writes `.m4a`
+  in parallel, carrying `LOOPSTART`/`LOOPLENGTH` into the audio manifest as loop points in seconds.
+- **Data in `data.js`.** The export writes `window.LAKON_GAME = {…}` instead of loose JSON, so the game also opens from a local
+  folder (audio then falls back to `<audio>` elements, because `fetch` doesn't work over `file://`).
 - **Fixed-step loop with clamped deltas.** `GameScene.update` collects real time into 1/60 s steps and ignores negative or
   oversized deltas. That keeps ProMotion (120 Hz) displays at the right speed.
 
@@ -41,24 +59,45 @@ SwiftUI with AppKit for the editor, and SpriteKit for the player. It needs macOS
 **Editor:** maps (create, properties/resize, delete, tree). Map properties include BGM/BGS autoplay, battlebacks and an encounter list with weights and regions. The A–E palette supports rectangular multi-tile brushes, with pencil, rectangle, flood fill and eraser tools, MZ-style auto-layering, autotile reshaping, region painting, an option-click eyedropper and 100-step undo/redo. Event mode covers pages, all six condition types, an image picker, movement, options, priority and trigger. There are quick Treasure and Transfer events and a start position.
 - **Command list:** insert, edit and block-aware delete, with forms for about 65 commands.
 - **Database:** actors (class, initial equipment, traits), classes (EXP curve, parameter curves, learnings, traits), skills and items (scope, occasion, hit type, damage formula, effects, icon), weapons and armors (types, parameters, traits), enemies (parameters, drops, action patterns, traits, battler preview), troops (drag-to-place layout on the battleback, pages with turn/HP/switch conditions and their own command list), states (restriction, removal timing, messages, traits), tilesets (○ × ☆ passage), common events, system, and audio & vehicles (music, the 24 system sounds with preview, boat/ship/airship).
-- **Other:** playtest (⌘R) and Export as Mac App (⌘E).
+- **Animations:** an Animations tab with MV cell entries (images, position, frame count, flash/SE timings) and MZ Effekseer entries
+  (effect name, display type, scale, speed, offsets, flash and sound timings), each with a live SpriteKit preview. Skills, items
+  and weapons have an animation picker (−1 = Normal Attack).
+- **Side view:** a System toggle, an [SV] battler picker with preview per actor, [SV] motion and overlay per state, a collapse
+  effect per enemy, and a troop preview that shows the party in its side-view home positions.
+- **Parallax:** map properties (image, loop X/Y with scroll speed, show in editor), drawn behind the tiles in the map editor.
+- **Commands:** forms for Show Animation (212), Show Battle Animation (337) and Change Parallax (284).
+- **Other:** playtest (⌘R), Export as Mac App (⌘E) and Export for Web (⇧⌘E).
 
 **Runtime (ports of MZ's rmmz_objects.js behaviour):**
 - **Map:** walking and dashing (Shift), followers, the 5 triggers, 3 priorities, page switching, self switches, autorun and parallel events (map and common), and random/approach/custom movement with the full move-route set. Terrain flags are honoured: bush (half-transparent legs), counter (talk across), damage floor and ladder. Balloons, generic animation bursts and A1 tile animation (water) all work.
-- **Battle:** front view with battlebacks, enemy sprites, a battle log, party and actor commands, skill and item lists and target selection. MZ's damage formula pipeline runs on JavaScriptCore (element rate, pdr/mdr, rec, critical ×3, variance, guard). Hit and evasion use the hit/eva/mev x-params. States cover restriction, auto-removal timing and removal by damage. Buffs, TP, enemy action patterns with conditions and rating, troop events (turn, turn end, HP and switch conditions; battle, turn or moment span) and escape ratio all work. Rewards give EXP (MZ's EXP curve), gold and drops, with level-ups and learned skills. Battle Processing supports Win/Escape/Lose branches. Random encounters use step counts, weights and regions, with preemptive and surprise rolls.
+- **Battle:** front or side view with battlebacks, enemy sprites, a battle log, party and actor commands, skill and item lists and target selection. MZ's damage formula pipeline runs on JavaScriptCore (element rate, pdr/mdr, rec, critical ×3, variance, guard). Hit and evasion use the hit/eva/mev x-params. States cover restriction, auto-removal timing and removal by damage. Buffs, TP, enemy action patterns with conditions and rating, troop events (turn, turn end, HP and switch conditions; battle, turn or moment span) and escape ratio all work. Rewards give EXP (MZ's EXP curve), gold and drops, with level-ups and learned skills. Battle Processing supports Win/Escape/Lose branches. Random encounters use step counts, weights and regions, with preemptive and surprise rolls.
 - **Menus:** Item, Skill (with targets), Equip (with parameter preview), Status, Options (volumes), Save/Load (4 slots with info), Game End, and a title screen with Continue/Options.
 - **Shop:** buy and sell with quantity, possession count and an equipment comparison per member.
 - **Message:** `\V \N \P \G \C[n] \I[n]`, faces, speaker name, choices, Input Number, Select Item, scrolling text and Name Input.
 - **Screen:** tint (including gray), flash, shake, rain/storm/snow weather, and pictures (show, move with MZ easing, rotate, tint, erase, blend modes).
+- **Parallax:** tiling image behind the map, loop X/Y with auto-scroll, "!" names scroll with the map, Change Parallax (284), saved with the game.
+- **Animations:** MV cell animations played exactly (cells, mirror, blend, target/screen flash, hide target, SE timings), on the map
+  (Show Animation, with Wait for Completion) and in battle (skill/item animations, weapon animation for normal attacks, Show
+  Battle Animation). MZ Effekseer entries play their timings with a stand-in effect on the Mac and the real effect in the web export.
+- **Side-view battle:** sv_actors sprites with all 18 motions, entry run, step forward while inputting/acting, attack motions and
+  weapon sprites from `System.attackMotions`, chant/guard/dying/abnormal/sleep/dead poses, state overlays, shadows, victory and
+  escape. Enemies use img/sv_enemies when present, with MZ's whiten/blink/collapse/boss-collapse effects in both views.
 - **Audio:** BGM, BGS, ME and SE on AVAudioEngine with pitch, pan and fades. ME interrupts and then resumes the BGM. Ogg Vorbis goes through the vendored public-domain stb_vorbis decoder, which honours `LOOPSTART`/`LOOPLENGTH`. WAV, M4A and MP3 go through AVFoundation.
 - **Vehicles:** boat (flag 0x200), ship (0x400) and airship (lands where 0x800 is clear). You board and alight with the action button, and each vehicle has its own BGM.
 - **Scripts and plugins:** Script (355/655), script conditions, script variable operands, move-route scripts and damage formulas all run on macOS JavaScriptCore. They see an MZ-shaped API: `$gameVariables`, `$gameSwitches`, `$gameSelfSwitches`, `$gameParty`, `$gameActors`, `$gamePlayer`, `$gameMap`, `$gameMessage`, `$gameScreen`, `$gameTemp`, `AudioManager` and `$data*`. Plugins live in `plugins/*.js`, with `plugins/plugins.json` using MZ's `$plugins` shape. `PluginManager.registerCommand` serves Plugin Command (357), and `Lakon.on("mapStart"|"update"|"battleStart"|"battleEnd")` provides hooks.
-- **Commands executed:** 101–105, 108, 111–117, 121–136, 201–206, 211–217, 221–225, 230–236, 241–251, 282–285, 301–303, 311–326, 331–342, 351–357, plus 401/402/403/404/405/408/411/412/413/601–605/655.
+- **Commands executed:** 101–105, 108, 111–117, 121–136, 201–206, 211–217, 221–225, 230–236, 241–251, 282–285, 301–303, 311–326, 331–342, 351–357, plus 401/402/403/404/405/408/411/412/413/601–605/655. Both players run the same set.
+- **Web export:** everything above runs in the browser: title, map, events and scripts/plugins, messages and inputs, menus, shop, name
+  input, battles (front and side view), animations, parallax, pictures, weather and tint, BGM/BGS/ME/SE with loops, and saves in
+  localStorage. Keyboard (same keys) and the first gamepad work; F4 or a double-click toggles full screen.
 
 ## Not implemented (versus MZ)
 
-- **Side-view battle and real battle animations:** MZ draws Effekseer particle effects, Lakon shows a generic burst.
-- **Rendering extras:** parallax backgrounds and the shadow pen.
+- **Effekseer on the Mac:** the Mac player shows a stand-in for Effekseer effects (the web export plays them). Battles wait for the
+  stand-in's 40 frames, so long real effects can still be playing when results appear.
+- **Animation editing:** no cell-by-cell frame editor for MV animations, and animation hue (`animation1Hue`) isn't applied.
+- **Rendering extras:** the shadow pen.
+- **Web export size:** no "exclude unused files". itch.io allows 1,000 files per HTML5 zip; the exporter warns past that
+  (an imported RTP project has about 1,250).
 - **Movies:** Play Movie (261) does nothing.
 - **Text codes:** `\{` and `\}` font size changes are ignored.
 - **TP mode:** TP is always on.
@@ -68,9 +107,16 @@ SwiftUI with AppKit for the editor, and SpriteKit for the player. It needs macOS
 
 ## Verification
 
-- **`swift test`:** 25 tests. Two cover the earlier tile and world behaviour, `SystemsTests` covers the newer systems, and one runs a real MZ project when `LAKON_MZ_FIXTURE` is set.
+- **`swift test`:** 34 tests. Two cover the earlier tile and world behaviour, `SystemsTests` covers the newer systems, one runs a real MZ project when `LAKON_MZ_FIXTURE` is set.
+  - `BattleAnimationTests` covers both animation formats (decode, encode, lengths), MV playback (cells, mirror, flashes, SE, end), a side-view battle's
+    action states, motions, weapon images and animation cues, seeded-battle determinism, Show Animation's wait, parallax scrolling, Change Parallax and
+    its save/load (including saves made before parallax existed), and `SVActorSprite` entry and step-forward.
+  - `WebParityTests` runs `web/sim.js` under Node against `Simulation.swift` and requires identical snapshots (skipped without Node; the MZ case needs `LAKON_MZ_FIXTURE`).
   - `SystemsTests` asserts MZ's damage formula and EXP curve values, a full battle won with rewards and the If Win branch, escape/guard/skills, losing with Continue When Loss, random encounters, shop buy/sell/equip, menu item and skill use, script command and condition plus a plugin command from `plugins/LakonDemo.js`, ship boarding/sailing/landing, pictures/tint/weather persisting through save, number and name input, and followers and actor save round-trips.
   - The MZ fixture run loads every map and all battle data from a real MZ project and simulates 1,200 frames.
 - **`Lakon --decode-audio file.ogg`:** a real MZ BGM (`Theme4.ogg`) decodes as 44.1 kHz stereo, 88 s, with its `LOOPSTART`/`LOOPLENGTH` read.
-- **Game smoke run:** `LAKON_SMOKE_PROJECT=<dir> LAKON_SMOKE_OUT=<dir> Lakon` drives the real app with frame-exact input. It covers the intro picture, name input, a balloon, dialogue, menus (items, equip, status), the shop, a battle (target select, skills, victory), the world map with rain, ship boarding and sailing, and a screen tint, with a snapshot at each step. A 60 Hz timer drives the scene, because SKView's display link stops when the display sleeps.
+- **Game smoke run:** `LAKON_SMOKE_PROJECT=<dir> LAKON_SMOKE_OUT=<dir> Lakon` drives the real app with frame-exact input. It covers the intro picture, name input, a balloon, dialogue, menus (items, equip, status), the shop, a side-view battle (target select, skills, animations, victory), the world map with rain, ship boarding and sailing, a screen tint, and Sky Ledge (scrolling parallax, Show Animation, Change Parallax), with a snapshot at each step. A 60 Hz timer drives the scene, because SKView's display link stops when the display sleeps.
+- **Web check:** `scripts/web-check.sh` exports the demo and plays it in headless Chrome with `web/test/browser.js` (Chrome DevTools Protocol over
+  Node's WebSocket, no npm packages): title, name input, dialogue, menu, a side-view battle with animations, victory, Sky Ledge and Change Parallax, failing
+  on any page error. It also ran an imported MZ project, whose RTP maps, sv_actors and a real Effekseer hit effect rendered correctly.
 - **Editor smoke run:** `LAKON_SMOKE_EDITOR_ONLY=1 …` opens the database tabs. With Screen Recording allowed for the terminal, the editor's real window, including native toolbar and form controls, was captured and checked (`docs/images/editor.png`, `db-*.png`).

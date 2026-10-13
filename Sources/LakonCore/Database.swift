@@ -339,9 +339,13 @@ public struct StateData: Codable, Hashable, Identifiable {
     public var message3 = ""
     public var message4 = ""
     public var note = ""
+    /// Side-view: SV motion while affected (0 normal, 1 abnormal, 2 sleep, 3 dead) and States.png overlay row (0 none).
+    public var motion = 0
+    public var overlay = 0
     public init(id: Int, name: String) { self.id = id; self.name = name }
     public init(from d: Decoder) throws {
         let c = try d.container(keyedBy: CodingKeys.self)
+        motion = c.v(.motion, 0); overlay = c.v(.overlay, 0)
         id = c.v(.id, 0); name = c.v(.name, ""); iconIndex = c.v(.iconIndex, 0); restriction = c.v(.restriction, 0)
         priority = c.v(.priority, 50); autoRemovalTiming = c.v(.autoRemovalTiming, 0); minTurns = c.v(.minTurns, 1)
         maxTurns = c.v(.maxTurns, 1); removeAtBattleEnd = c.v(.removeAtBattleEnd, false); removeByDamage = c.v(.removeByDamage, false)

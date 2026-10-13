@@ -29,6 +29,10 @@ public struct GameState: Codable {
     public var saveEnabled = true
     public var battleBgm: AudioFile?
     public var victoryMe: AudioFile?
+    /// The map's parallax as changed by Change Parallax (284); saved like MZ's $gameMap.
+    public var parallax = ParallaxState()
+    /// True when a save file carried `parallax` (older saves didn't: the map's own parallax is used then).
+    var hasSavedParallax = false
 
     /// Set when switches/variables change so events re-pick their page (Game_Map.requestRefresh).
     var needsRefresh = false
@@ -36,7 +40,7 @@ public struct GameState: Codable {
     enum CodingKeys: String, CodingKey {
         case switches, variables, selfSwitches, gold, items, party, mapId, playerX, playerY, playerDirection, steps, playFrames
         case weapons, armors, actors, screen, vehicles, vehicleType, bgm, bgs, battleCount, winCount, escapeCount, saveCount
-        case encounterEnabled, menuEnabled, saveEnabled, battleBgm, victoryMe
+        case encounterEnabled, menuEnabled, saveEnabled, battleBgm, victoryMe, parallax
     }
 
     public init() {}
@@ -51,6 +55,8 @@ public struct GameState: Codable {
         bgm = c.v(.bgm, nil); bgs = c.v(.bgs, nil); battleCount = c.v(.battleCount, 0); winCount = c.v(.winCount, 0)
         escapeCount = c.v(.escapeCount, 0); saveCount = c.v(.saveCount, 0); encounterEnabled = c.v(.encounterEnabled, true)
         menuEnabled = c.v(.menuEnabled, true); saveEnabled = c.v(.saveEnabled, true); battleBgm = c.v(.battleBgm, nil); victoryMe = c.v(.victoryMe, nil)
+        let saved: ParallaxState? = c.v(.parallax, nil)
+        parallax = saved ?? ParallaxState(); hasSavedParallax = saved != nil
     }
 
     public func switchValue(_ id: Int) -> Bool { switches[id] ?? false }

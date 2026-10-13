@@ -210,7 +210,10 @@ public final class Interpreter {
             w.setVehicleLocation(p[p: 0].int, mapId: m, x: x, y: y)
         case 206: _ = w.getOnOffVehicle()                                        // Get on/off Vehicle
         case 212: // Show Animation [characterId, animationId, wait]
-            if let c = character(p[p: 0].int, w) { c.animationId = p[p: 1].int; c.animationFrames = 40; if p[p: 2].bool { waitMode = .animation(c) } }
+            if let c = character(p[p: 0].int, w) {
+                c.startAnimation(p[p: 1].int, frames: w.project.animation(p[p: 1].int)?.totalFrames(targets: 1) ?? 0)
+                if p[p: 2].bool { waitMode = .animation(c) }
+            }
         case 213: // Show Balloon Icon [characterId, balloonId, wait]
             if let c = character(p[p: 0].int, w) { c.balloonId = p[p: 1].int; c.balloonFrames = 64; if p[p: 2].bool { waitMode = .balloon(c) } }
         case 216: w.followersVisible = p[p: 0].int == 0                         // Change Player Followers
@@ -254,6 +257,8 @@ public final class Interpreter {
         case 251: w.audio.stopSe()                                              // Stop SE
         case 282: w.changeTileset(p[p: 0].int)                                  // Change Tileset
         case 283: w.battle?.battleback1 = p[p: 0].string; w.battle?.battleback2 = p[p: 1].string  // Change Battle Background
+        case 284: // Change Parallax [name, loopX, loopY, sx, sy]
+            w.state.parallax.change(name: p[p: 0].string, loopX: p[p: 1].bool, loopY: p[p: 2].bool, sx: p[p: 3].int, sy: p[p: 4].int)
         case 285: // Get Location Info [variableId, infoType, designation, x, y]
             let direct = p[p: 2].int == 0
             var x = direct ? p[p: 3].int : w.state.variable(p[p: 3].int)
@@ -347,7 +352,8 @@ public final class Interpreter {
         case 335: for e in enemies(p[p: 0].int, w) { e.appear() }
         case 336: // Enemy Transform [index, enemyId]
             if let b = w.battle, let e = enemies(p[p: 0].int, w).first { b.replaceEnemy(e, with: e.transform(p[p: 1].int)) }
-        case 337: w.battle?.cueAnimation(enemyIndex: p[p: 0].int, animationId: p[p: 1].int) // Show Battle Animation
+        case 337: // Show Battle Animation [enemyIndex, animationId, allEnemies]
+            w.battle?.cueAnimation(enemyIndex: p[p: 2].bool ? -1 : p[p: 0].int, animationId: p[p: 1].int)
         case 339: // Force Action [subjectType, subjectId, skillId, targetIndex]
             w.battle?.forceAction(isEnemy: p[p: 0].int == 0, id: p[p: 1].int, skillId: p[p: 2].int, target: p[p: 3].int)
         case 340: w.battle?.abort()                                              // Abort Battle

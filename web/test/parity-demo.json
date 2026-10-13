@@ -1,0 +1,11 @@
+{"seed": 42, "steps": [
+ {"frames": 700},
+ {"frames": 16, "dir": 8}, {"frames": 16, "dir": 8}, {"frames": 16, "dir": 4}, {"frames": 3, "dir": 8},
+ {"frames": 2, "ok": true}, {"frames": 400},
+ {"frames": 2, "ok": true}, {"frames": 300},
+ {"frames": 20, "dir": 2}, {"frames": 20, "dir": 2}, {"frames": 200, "dir": 6},
+ {"frames": 120},
+ {"frames": 300, "dir": 6}, {"frames": 300, "dir": 2}, {"frames": 300, "dir": 8}, {"frames": 300, "dir": 4},
+ {"frames": 900},
+ {"frames": 300, "dir": 6, "dash": true}, {"frames": 300, "dir": 2}, {"frames": 1200}
+]}
